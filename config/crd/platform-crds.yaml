@@ -591,6 +591,15 @@ spec:
                     - rule: self.mainExtension != self.depositExtension
                       message: voicemail mainExtension and depositExtension must be
                         different
+              extensions: &id002
+                type: object
+                properties:
+                  extra:
+                    type: string
+                  override:
+                    type: string
+              pjsip: *id002
+              rtp: *id002
             x-kubernetes-validations:
             - rule: '!has(self.applications) || !has(self.applications.voicemail)
                 || !self.applications.voicemail.enabled || has(self.databaseSecretRef)'

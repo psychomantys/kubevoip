@@ -16,6 +16,11 @@ FIELD_SECTIONS = {
     "SIPGateway": {
         "observability": "SIPGateway observability",
     },
+    "AsteriskPool": {
+        "extensions": "AsteriskPool extensions.conf",
+        "pjsip": "AsteriskPool pjsip.conf",
+        "rtp": "AsteriskPool rtp.conf",
+    },
 }
 
 

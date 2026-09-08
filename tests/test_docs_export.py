@@ -36,5 +36,9 @@ def test_export_docs_reference_renders_nested_spec_fields() -> None:
     assert "### SIPGateway observability" in content
     assert "`spec.observability.sipHeaders.enabled`" in content
     assert "`spec.observability.sdp.enabled`" in content
+    assert "`spec.extensions.extra`" in content
+    assert "`spec.pjsip.override`" in content
+    assert "`spec.rtp.extra`" in content
+    assert "### AsteriskPool extensions.conf" in content
     assert "`spec.trunks`" not in content
     assert "`spec.routes`" not in content

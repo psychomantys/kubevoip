@@ -14,6 +14,11 @@ def test_platform_crds_are_structural():
         "x-kubernetes-preserve-unknown-fields" not in item["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]
         for item in crds
     )
+    asterisk_pool = next(item for item in crds if item["spec"]["names"]["kind"] == "AsteriskPool")
+    spec_properties = asterisk_pool["spec"]["versions"][0]["schema"]["openAPIV3Schema"]["properties"]["spec"]["properties"]
+    for field in ("extensions", "pjsip", "rtp"):
+        assert spec_properties[field]["properties"]["extra"]["type"] == "string"
+        assert spec_properties[field]["properties"]["override"]["type"] == "string"
 
 
 def test_workflows_are_valid_yaml():

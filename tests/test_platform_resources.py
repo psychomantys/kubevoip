@@ -1,3 +1,5 @@
+import base64
+
 from kubevoip.models import AsteriskPoolSpec, MediaRelaySpec, SIPGatewaySpec
 from kubevoip.platform_controller import resolve_external_address
 from kubevoip.platform_resources import (
@@ -180,3 +182,23 @@ def test_asterisk_pool_mounts_voicemail_odbc_config():
     assert container["envFrom"] == [{"secretRef": {"name": "db"}}]
     assert {"name": "POD_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}} in container["env"]
     assert {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}} in container["env"]
+
+
+def test_asterisk_pool_secret_applies_config_overlays():
+    owner = {**OWNER, "kind": "AsteriskPool"}
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()"},
+            "pjsip": {"override": "[custom]\ntype=endpoint\n"},
+        }
+    )
+    resources = build_asterisk_pool_resources("apps", "test", owner, spec)
+    secret = next(item for item in resources if item["kind"] == "Secret")
+    extensions = base64.b64decode(secret["data"]["extensions.conf"]).decode()
+    pjsip = base64.b64decode(secret["data"]["pjsip.conf"]).decode()
+    rtp = base64.b64decode(secret["data"]["rtp.conf"]).decode()
+
+    assert "exten => 600,1,Answer()" in extensions
+    assert "exten => 601,1,Hangup()" in extensions
+    assert pjsip == "[custom]\ntype=endpoint\n"
+    assert "rtpstart=10000" in rtp

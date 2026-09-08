@@ -143,11 +143,19 @@ class DatabaseSecretRef(Model):
     name: str = Field(min_length=1)
 
 
+class AsteriskConfigOverlay(Model):
+    extra: str | None = None
+    override: str | None = None
+
+
 class AsteriskPoolSpec(Model):
     replicas: int = Field(default=1, ge=1, le=32)
     image: str = Field(default=DEFAULT_ASTERISK_WORKER_IMAGE, min_length=1)
     database_secret_ref: DatabaseSecretRef | None = Field(default=None, alias="databaseSecretRef")
     applications: ApplicationsSpec = Field(default_factory=ApplicationsSpec)
+    extensions: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    pjsip: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    rtp: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
 
     @model_validator(mode="after")
     def validate_voicemail_database(self) -> "AsteriskPoolSpec":

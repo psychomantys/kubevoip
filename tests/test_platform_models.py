@@ -261,6 +261,24 @@ def test_asterisk_pool_voicemail_requires_database_ref():
         )
 
 
+def test_asterisk_pool_parses_config_overlays():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()"},
+            "pjsip": {"override": "[custom]\ntype=endpoint\n"},
+            "rtp": {"extra": "icesupport=yes\n", "override": "[general]\nrtpstart=12000\n"},
+        }
+    )
+    assert spec.extensions.extra == "exten => 601,1,Hangup()"
+    assert spec.pjsip.override == "[custom]\ntype=endpoint\n"
+    assert spec.rtp.extra == "icesupport=yes\n"
+    assert spec.rtp.override == "[general]\nrtpstart=12000\n"
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"extensions": {"unknown": "nope"}})
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"pjsip": {"extra": 1}})
+
+
 def test_voicemail_mailbox_validates_email_and_fallback():
     spec = VoicemailMailboxSpec.model_validate(
         {

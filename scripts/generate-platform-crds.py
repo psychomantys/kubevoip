@@ -110,6 +110,7 @@ voicemail_fallback = obj(
         }
     ]
 }
+asterisk_config_overlay = obj({"extra": string(), "override": string()})
 voicemail_email = obj(
     {
         "enabled": {"type": "boolean", "default": False},
@@ -266,6 +267,9 @@ SPECS = {
                     "voicemail": voicemail_application,
                 },
             ),
+            "extensions": asterisk_config_overlay,
+            "pjsip": asterisk_config_overlay,
+            "rtp": asterisk_config_overlay,
         }
     )
     | {

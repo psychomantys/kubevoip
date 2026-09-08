@@ -168,6 +168,68 @@ def test_worker_configs_can_preselect_voicemail_main_mailbox():
     assert "VoiceMailMain()" not in configs["extensions.conf"]
 
 
+def test_worker_configs_append_extra_fragments():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()"},
+            "pjsip": {"extra": "[custom]\ntype=endpoint\ncontext=applications"},
+            "rtp": {"extra": "icesupport=yes"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert "exten => 600,1,Answer()" in configs["extensions.conf"]
+    assert "exten => 601,1,Hangup()" in configs["extensions.conf"]
+    assert configs["extensions.conf"].index("exten => 600,1,Answer()") < configs["extensions.conf"].index(
+        "exten => 601,1,Hangup()"
+    )
+    assert "allow=ulaw" in configs["pjsip.conf"]
+    assert "[custom]" in configs["pjsip.conf"]
+    assert "rtpstart=10000" in configs["rtp.conf"]
+    assert "icesupport=yes" in configs["rtp.conf"]
+    assert configs["extensions.conf"].endswith("\n")
+    assert configs["pjsip.conf"].endswith("\n")
+    assert configs["rtp.conf"].endswith("\n")
+
+
+def test_worker_configs_override_replaces_template():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"override": "[custom]\nexten => 900,1,Hangup()\n"},
+            "pjsip": {"override": "[custom]\ntype=endpoint\n"},
+            "rtp": {"override": "[general]\nrtpstart=12000\nrtpend=12999\n"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert configs["extensions.conf"] == "[custom]\nexten => 900,1,Hangup()\n"
+    assert "exten => 600,1,Answer()" not in configs["extensions.conf"]
+    assert configs["pjsip.conf"] == "[custom]\ntype=endpoint\n"
+    assert "allow=ulaw" not in configs["pjsip.conf"]
+    assert configs["rtp.conf"] == "[general]\nrtpstart=12000\nrtpend=12999\n"
+    assert "rtpstart=10000" not in configs["rtp.conf"]
+
+
+def test_worker_configs_override_takes_precedence_over_extra():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()", "override": "[only]\nexten => 900,1,Hangup()"},
+            "pjsip": {"extra": "[ignored]\ntype=aor", "override": "[only]\ntype=endpoint"},
+            "rtp": {"extra": "icesupport=yes", "override": "[general]\nrtpstart=12000"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert configs["extensions.conf"] == "[only]\nexten => 900,1,Hangup()\n"
+    assert "exten => 600" not in configs["extensions.conf"]
+    assert "exten => 601" not in configs["extensions.conf"]
+    assert configs["pjsip.conf"] == "[only]\ntype=endpoint\n"
+    assert "[ignored]" not in configs["pjsip.conf"]
+    assert configs["rtp.conf"] == "[general]\nrtpstart=12000\n"
+    assert "icesupport=yes" not in configs["rtp.conf"]
+    assert "rtpstart=10000" not in configs["rtp.conf"]
+
+
 def test_kamailio_loads_policy_before_consuming_credentials():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
 
