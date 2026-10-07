@@ -111,6 +111,35 @@ voicemail_fallback = obj(
     ]
 }
 asterisk_config_overlay = obj({"extra": string(), "override": string()})
+object_field_selector = obj({"apiVersion": string(), "fieldPath": name}, ("fieldPath",))
+resource_field_selector = obj({"containerName": string(), "resource": name, "divisor": string()}, ("resource",))
+config_map_key_selector = obj({"name": string(), "key": name, "optional": {"type": "boolean"}}, ("key",))
+secret_key_selector = obj({"name": string(), "key": name, "optional": {"type": "boolean"}}, ("key",))
+env_var_source = obj(
+    {
+        "fieldRef": object_field_selector,
+        "resourceFieldRef": resource_field_selector,
+        "configMapKeyRef": config_map_key_selector,
+        "secretKeyRef": secret_key_selector,
+    }
+)
+env_var = obj({"name": name, "value": string(), "valueFrom": env_var_source}, ("name",))
+config_map_env_source = obj({"name": string(), "optional": {"type": "boolean"}})
+secret_env_source = obj({"name": string(), "optional": {"type": "boolean"}})
+env_from_source = obj(
+    {
+        "prefix": string(),
+        "configMapRef": config_map_env_source,
+        "secretRef": secret_env_source,
+    }
+) | {
+    "x-kubernetes-validations": [
+        {
+            "rule": "has(self.configMapRef) || has(self.secretRef)",
+            "message": "envFrom requires configMapRef or secretRef",
+        }
+    ]
+}
 voicemail_email = obj(
     {
         "enabled": {"type": "boolean", "default": False},
@@ -270,6 +299,8 @@ SPECS = {
             "extensions": asterisk_config_overlay,
             "pjsip": asterisk_config_overlay,
             "rtp": asterisk_config_overlay,
+            "env": array(env_var),
+            "envFrom": array(env_from_source),
         }
     )
     | {

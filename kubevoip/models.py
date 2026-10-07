@@ -143,6 +143,64 @@ class DatabaseSecretRef(Model):
     name: str = Field(min_length=1)
 
 
+class ObjectFieldSelector(Model):
+    api_version: str | None = Field(default=None, alias="apiVersion")
+    field_path: str = Field(alias="fieldPath", min_length=1)
+
+
+class ResourceFieldSelector(Model):
+    container_name: str | None = Field(default=None, alias="containerName")
+    resource: str = Field(min_length=1)
+    divisor: str | None = None
+
+
+class ConfigMapKeySelector(Model):
+    name: str | None = None
+    key: str = Field(min_length=1)
+    optional: bool | None = None
+
+
+class SecretKeySelector(Model):
+    name: str | None = None
+    key: str = Field(min_length=1)
+    optional: bool | None = None
+
+
+class EnvVarSource(Model):
+    field_ref: ObjectFieldSelector | None = Field(default=None, alias="fieldRef")
+    resource_field_ref: ResourceFieldSelector | None = Field(default=None, alias="resourceFieldRef")
+    config_map_key_ref: ConfigMapKeySelector | None = Field(default=None, alias="configMapKeyRef")
+    secret_key_ref: SecretKeySelector | None = Field(default=None, alias="secretKeyRef")
+
+
+class EnvVar(Model):
+    name: str = Field(min_length=1)
+    value: str | None = None
+    value_from: EnvVarSource | None = Field(default=None, alias="valueFrom")
+
+
+class ConfigMapEnvSource(Model):
+    name: str | None = None
+    optional: bool | None = None
+
+
+class SecretEnvSource(Model):
+    name: str | None = None
+    optional: bool | None = None
+
+
+class EnvFromSource(Model):
+    prefix: str | None = None
+    config_map_ref: ConfigMapEnvSource | None = Field(default=None, alias="configMapRef")
+    secret_ref: SecretEnvSource | None = Field(default=None, alias="secretRef")
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "EnvFromSource":
+        if not self.config_map_ref and not self.secret_ref:
+            raise ValueError("envFrom requires configMapRef or secretRef")
+        return self
+
+
 class AsteriskConfigOverlay(Model):
     extra: str | None = None
     override: str | None = None
@@ -156,6 +214,8 @@ class AsteriskPoolSpec(Model):
     extensions: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
     pjsip: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
     rtp: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    env: list[EnvVar] = Field(default_factory=list)
+    env_from: list[EnvFromSource] = Field(default_factory=list, alias="envFrom")
 
     @model_validator(mode="after")
     def validate_voicemail_database(self) -> "AsteriskPoolSpec":
