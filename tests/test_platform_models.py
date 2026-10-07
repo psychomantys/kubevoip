@@ -279,6 +279,31 @@ def test_asterisk_pool_parses_config_overlays():
         AsteriskPoolSpec.model_validate({"pjsip": {"extra": 1}})
 
 
+def test_asterisk_pool_parses_env_and_env_from():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "env": [
+                {"name": "LOG_LEVEL", "value": "debug"},
+                {"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "api", "key": "token"}}},
+            ],
+            "envFrom": [
+                {"secretRef": {"name": "app-secrets"}},
+                {"prefix": "CFG_", "configMapRef": {"name": "app-config", "optional": True}},
+            ],
+        }
+    )
+    assert spec.env[0].name == "LOG_LEVEL"
+    assert spec.env[0].value == "debug"
+    assert spec.env[1].value_from.secret_key_ref.name == "api"
+    assert spec.env_from[0].secret_ref.name == "app-secrets"
+    assert spec.env_from[1].prefix == "CFG_"
+    assert spec.env_from[1].config_map_ref.optional is True
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"env": [{"name": "X", "unknown": "nope"}]})
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"envFrom": [{"prefix": "X_"}]})
+
+
 def test_voicemail_mailbox_validates_email_and_fallback():
     spec = VoicemailMailboxSpec.model_validate(
         {

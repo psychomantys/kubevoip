@@ -19,6 +19,11 @@ def test_platform_crds_are_structural():
     for field in ("extensions", "pjsip", "rtp"):
         assert spec_properties[field]["properties"]["extra"]["type"] == "string"
         assert spec_properties[field]["properties"]["override"]["type"] == "string"
+    assert spec_properties["env"]["type"] == "array"
+    assert spec_properties["env"]["items"]["required"] == ["name"]
+    assert spec_properties["envFrom"]["type"] == "array"
+    assert "configMapRef" in spec_properties["envFrom"]["items"]["properties"]
+    assert "secretRef" in spec_properties["envFrom"]["items"]["properties"]
 
 
 def test_workflows_are_valid_yaml():

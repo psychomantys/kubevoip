@@ -202,3 +202,37 @@ def test_asterisk_pool_secret_applies_config_overlays():
     assert "exten => 601,1,Hangup()" in extensions
     assert pjsip == "[custom]\ntype=endpoint\n"
     assert "rtpstart=10000" in rtp
+
+
+def test_asterisk_pool_passes_env_and_env_from_to_container():
+    owner = {**OWNER, "kind": "AsteriskPool"}
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "applications": {"voicemail": {"enabled": True}},
+            "env": [
+                {"name": "LOG_LEVEL", "value": "debug"},
+                {"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "api", "key": "token"}}},
+            ],
+            "envFrom": [{"configMapRef": {"name": "app-config"}}],
+        }
+    )
+    resources = build_asterisk_pool_resources(
+        "apps",
+        "test",
+        owner,
+        spec,
+        {"host": "postgres.test.svc", "port": "5432", "dbname": "kubevoip", "user": "app", "password": "secret"},
+    )
+    container = next(item for item in resources if item["kind"] == "StatefulSet")["spec"]["template"]["spec"]["containers"][0]
+
+    assert container["env"][:2] == [
+        {"name": "POD_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}},
+        {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}},
+    ]
+    assert {"name": "LOG_LEVEL", "value": "debug"} in container["env"]
+    assert {"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "api", "key": "token"}}} in container["env"]
+    assert container["envFrom"] == [
+        {"secretRef": {"name": "db"}},
+        {"configMapRef": {"name": "app-config"}},
+    ]
