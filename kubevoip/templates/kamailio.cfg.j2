@@ -10,7 +10,9 @@ log_stderror=yes
 debug=2
 alias=ADVERTISED_ADDR:5060
 alias=INTERNAL_ADDR:5060
-listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060
+{% for transport in transports %}
+listen={{ transport }}:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060
+{% endfor %}
 loadmodule "db_postgres.so"
 loadmodule "tm.so"
 loadmodule "sl.so"

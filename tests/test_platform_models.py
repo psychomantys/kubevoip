@@ -183,6 +183,19 @@ def test_gateway_service_validation_remains_provider_neutral():
         )
 
 
+def test_gateway_transports_validation():
+    base = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+    }
+    assert SIPGatewaySpec.model_validate(base).transports == ["udp", "tcp"]
+    assert SIPGatewaySpec.model_validate({**base, "transports": ["tcp"]}).transports == ["tcp"]
+    for transports in ([], ["udp", "udp"], ["tls"]):
+        with pytest.raises(ValidationError):
+            SIPGatewaySpec.model_validate({**base, "transports": transports})
+
+
 def test_gateway_homer_capture_validation():
     spec = SIPGatewaySpec.model_validate(
         {

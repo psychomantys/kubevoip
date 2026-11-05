@@ -77,9 +77,17 @@ def render_kamailio_config(
     if internal_address == external_address:
         record_route_line = "record_route();"
     else:
+
+        def preset(outbound: str, inbound: str) -> str:
+            line = f'record_route_preset("{outbound}:5060;r2=on", "{inbound}:5060;r2=on");'
+            if "tcp" not in spec.transports:
+                return line
+            tcp_line = f'record_route_preset("{outbound}:5060;r2=on", "{inbound}:5060;transport=tcp;r2=on");'
+            return f"if (proto == TCP) {{ {tcp_line} }} else {{ {line} }}"
+
         record_route_line = (
-            f'if (isflagset(1)) {{ record_route_preset("{internal_record_route}:5060;r2=on", "{external_record_route}:5060;r2=on"); }} '
-            f'else {{ record_route_preset("{external_record_route}:5060;r2=on", "{internal_record_route}:5060;r2=on"); }}'
+            f"if (isflagset(1)) {{ {preset(internal_record_route, external_record_route)} }} "
+            f"else {{ {preset(external_record_route, internal_record_route)} }}"
         )
     sql_namespace = namespace.replace("'", "''")
     sql_gateway = gateway_name.replace("'", "''")
@@ -153,6 +161,7 @@ def render_kamailio_config(
         external_address=external_address,
         internal_address=internal_address,
         auth_realm=gateway_name,
+        transports=spec.transports,
         relay_sockets=relay_sockets,
         namespace=kamailio_string(namespace),
         gateway_name=kamailio_string(gateway_name),

@@ -295,6 +295,13 @@ SPECS = {
             "mediaRelayRef": local_ref,
             "externalAddress": address,
             "internalAddress": address,
+            "transports": array(
+                string(enum=["udp", "tcp"]),
+                minItems=1,
+                maxItems=2,
+                default=["udp", "tcp"],
+                **{"x-kubernetes-list-type": "set"},
+            ),
             "service": service,
             "observability": observability,
         },

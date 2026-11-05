@@ -263,7 +263,10 @@ def build_gateway_service(
         "spec": {
             "type": spec.service.type,
             "selector": component_labels("kamailio", name),
-            "ports": [{"name": "sip-udp", "port": 5060, "protocol": "UDP"}],
+            "ports": [
+                {"name": f"sip-{transport}", "port": 5060, "protocol": transport.upper()}
+                for transport in spec.transports
+            ],
         },
     }
     if spec.service.type != "ClusterIP":
