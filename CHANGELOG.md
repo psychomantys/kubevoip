@@ -4,11 +4,19 @@ All notable changes to KubeVoIP are documented in this file.
 
 ## Unreleased
 
+## [0.6.9] - 2026-11-05
+
 ### Added
 
 - `SIPGateway.spec.transports` selects the SIP transports Kamailio listens on
   and the gateway Service exposes on port `5060`. It defaults to `udp` and
   `tcp`; set it to `["udp"]` to keep the previous UDP-only behavior.
+- `AsteriskPool.spec.env` and `AsteriskPool.spec.envFrom` for Kubernetes-style
+  container environment variables and config/secret references.
+- `AsteriskPool.spec.extensions`, `pjsip`, and `rtp` overlays to append or
+  override rendered Asterisk configuration fragments.
+- Build workflow that publishes multi-architecture operator images on release
+  tags.
 
 ## [0.6.8] - 2026-06-26
 
