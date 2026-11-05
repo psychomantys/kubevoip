@@ -116,6 +116,22 @@ def test_gateway_service_can_be_built_before_address_resolves():
     assert service["spec"]["type"] == "LoadBalancer"
 
 
+def test_gateway_service_exposes_configured_transports():
+    owner = {**OWNER, "kind": "SIPGateway"}
+    base = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+    }
+    service = build_gateway_service("home", "test", owner, SIPGatewaySpec.model_validate(base))
+    assert service["spec"]["ports"] == [
+        {"name": "sip-udp", "port": 5060, "protocol": "UDP"},
+        {"name": "sip-tcp", "port": 5060, "protocol": "TCP"},
+    ]
+    service = build_gateway_service("home", "test", owner, SIPGatewaySpec.model_validate({**base, "transports": ["udp"]}))
+    assert service["spec"]["ports"] == [{"name": "sip-udp", "port": 5060, "protocol": "UDP"}]
+
+
 def test_gateway_resources_do_not_mount_trunk_secrets():
     owner = {**OWNER, "kind": "SIPGateway"}
     spec = SIPGatewaySpec.model_validate(

@@ -399,11 +399,19 @@ class SIPGatewaySpec(Model):
     media_relay_ref: LocalReference = Field(alias="mediaRelayRef")
     external_address: str | None = Field(default=None, alias="externalAddress", min_length=1)
     internal_address: str | None = Field(default=None, alias="internalAddress", min_length=1)
+    transports: list[Literal["udp", "tcp"]] = Field(default_factory=lambda: ["udp", "tcp"], min_length=1, max_length=2)
     service: ServiceSpec = Field(default_factory=ServiceSpec)
     observability: ObservabilitySpec = Field(default_factory=ObservabilitySpec)
 
     _validate_address = field_validator("external_address")(validate_external_address)
     _validate_internal_address = field_validator("internal_address")(validate_external_address)
+
+    @field_validator("transports")
+    @classmethod
+    def validate_transports(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("transports must be unique")
+        return value
 
     @model_validator(mode="after")
     def validate_service(self) -> "SIPGatewaySpec":

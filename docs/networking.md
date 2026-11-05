@@ -49,8 +49,14 @@ Normal changes to SIP users, trunks, routes, scopes, policies, caller ID, and
 digest credentials update PostgreSQL and do not roll Kamailio pods. Static
 gateway/network changes can still roll pods.
 
-Forwarding needs the same public and private port numbers. Send UDP `5060` to
-the Kamailio address. Send each RTPengine replica's assigned range to that
+`SIPGateway.spec.transports` selects the SIP transports Kamailio accepts on port
+`5060`. It defaults to `["udp", "tcp"]`, and the gateway Service exposes one
+port per transport. A LoadBalancer Service that carries both UDP and TCP needs a
+Kubernetes version and load balancer implementation with mixed-protocol support
+(Kubernetes 1.26 or newer); set `transports: ["udp"]` if yours does not.
+
+Forwarding needs the same public and private port numbers. Send UDP and TCP
+`5060` (for each enabled transport) to the Kamailio address. Send each RTPengine replica's assigned range to that
 replica's address. Do not translate those ports.
 
 `HostNetwork` avoids Kubernetes Service NAT for media but binds ports directly on

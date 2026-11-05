@@ -843,6 +843,19 @@ spec:
                 minLength: 1
                 maxLength: 253
               internalAddress: *id003
+              transports:
+                type: array
+                items:
+                  type: string
+                  enum:
+                  - udp
+                  - tcp
+                minItems: 1
+                maxItems: 2
+                default:
+                - udp
+                - tcp
+                x-kubernetes-list-type: set
               service:
                 type: object
                 properties:

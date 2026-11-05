@@ -4,6 +4,12 @@ All notable changes to KubeVoIP are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `SIPGateway.spec.transports` selects the SIP transports Kamailio listens on
+  and the gateway Service exposes on port `5060`. It defaults to `udp` and
+  `tcp`; set it to `["udp"]` to keep the previous UDP-only behavior.
+
 ## [0.6.8] - 2026-06-26
 
 ### Changed
