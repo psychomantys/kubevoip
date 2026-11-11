@@ -8,10 +8,14 @@
 auto_aliases=no
 log_stderror=yes
 debug=2
-alias=ADVERTISED_ADDR:5060
-alias=INTERNAL_ADDR:5060
+{% for port in ports %}
+alias=ADVERTISED_ADDR:{{ port }}
+alias=INTERNAL_ADDR:{{ port }}
+{% endfor %}
+{% for port in ports %}
 {% for transport in transports %}
-listen={{ transport }}:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060
+listen={{ transport }}:0.0.0.0:{{ port }} advertise ADVERTISED_ADDR:{{ port }}
+{% endfor %}
 {% endfor %}
 loadmodule "db_postgres.so"
 loadmodule "tm.so"
@@ -41,7 +45,7 @@ modparam("auth_db", "db_url", "__DBURL__")
 modparam("auth_db", "password_column", "ha1")
 modparam("auth_db", "calculate_ha1", 0)
 modparam("presence", "db_url", "__DBURL__")
-modparam("presence", "server_address", "sip:ADVERTISED_ADDR:5060")
+modparam("presence", "server_address", "sip:ADVERTISED_ADDR:{{ ports[0] }}")
 modparam("presence", "subs_db_mode", 3)
 modparam("presence", "publ_cache", 0)
 modparam("presence_mwi", "default_expires", 3600)

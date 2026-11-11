@@ -400,6 +400,7 @@ class SIPGatewaySpec(Model):
     external_address: str | None = Field(default=None, alias="externalAddress", min_length=1)
     internal_address: str | None = Field(default=None, alias="internalAddress", min_length=1)
     transports: list[Literal["udp", "tcp"]] = Field(default_factory=lambda: ["udp", "tcp"], min_length=1, max_length=2)
+    ports: list[int] = Field(default_factory=lambda: [5060], min_length=1, max_length=16)
     service: ServiceSpec = Field(default_factory=ServiceSpec)
     observability: ObservabilitySpec = Field(default_factory=ObservabilitySpec)
 
@@ -411,6 +412,15 @@ class SIPGatewaySpec(Model):
     def validate_transports(cls, value: list[str]) -> list[str]:
         if len(set(value)) != len(value):
             raise ValueError("transports must be unique")
+        return value
+
+    @field_validator("ports")
+    @classmethod
+    def validate_ports(cls, value: list[int]) -> list[int]:
+        if any(port < 1 or port > 65535 for port in value):
+            raise ValueError("ports must be between 1 and 65535")
+        if len(set(value)) != len(value):
+            raise ValueError("ports must be unique")
         return value
 
     @model_validator(mode="after")

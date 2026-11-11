@@ -196,6 +196,19 @@ def test_gateway_transports_validation():
             SIPGatewaySpec.model_validate({**base, "transports": transports})
 
 
+def test_gateway_ports_validation():
+    base = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+    }
+    assert SIPGatewaySpec.model_validate(base).ports == [5060]
+    assert SIPGatewaySpec.model_validate({**base, "ports": [5060, 5080]}).ports == [5060, 5080]
+    for ports in ([], [5060, 5060], [0], [65536]):
+        with pytest.raises(ValidationError):
+            SIPGatewaySpec.model_validate({**base, "ports": ports})
+
+
 def test_gateway_homer_capture_validation():
     spec = SIPGatewaySpec.model_validate(
         {

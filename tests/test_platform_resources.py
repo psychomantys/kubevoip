@@ -116,7 +116,7 @@ def test_gateway_service_can_be_built_before_address_resolves():
     assert service["spec"]["type"] == "LoadBalancer"
 
 
-def test_gateway_service_exposes_configured_transports():
+def test_gateway_service_exposes_configured_transports_and_ports():
     owner = {**OWNER, "kind": "SIPGateway"}
     base = {
         "databaseSecretRef": {"name": "db"},
@@ -125,11 +125,19 @@ def test_gateway_service_exposes_configured_transports():
     }
     service = build_gateway_service("home", "test", owner, SIPGatewaySpec.model_validate(base))
     assert service["spec"]["ports"] == [
-        {"name": "sip-udp", "port": 5060, "protocol": "UDP"},
-        {"name": "sip-tcp", "port": 5060, "protocol": "TCP"},
+        {"name": "sip-udp-5060", "port": 5060, "protocol": "UDP"},
+        {"name": "sip-tcp-5060", "port": 5060, "protocol": "TCP"},
     ]
-    service = build_gateway_service("home", "test", owner, SIPGatewaySpec.model_validate({**base, "transports": ["udp"]}))
-    assert service["spec"]["ports"] == [{"name": "sip-udp", "port": 5060, "protocol": "UDP"}]
+    service = build_gateway_service(
+        "home",
+        "test",
+        owner,
+        SIPGatewaySpec.model_validate({**base, "transports": ["udp"], "ports": [5060, 5080]}),
+    )
+    assert service["spec"]["ports"] == [
+        {"name": "sip-udp-5060", "port": 5060, "protocol": "UDP"},
+        {"name": "sip-udp-5080", "port": 5080, "protocol": "UDP"},
+    ]
 
 
 def test_gateway_resources_do_not_mount_trunk_secrets():

@@ -239,21 +239,26 @@ def test_kamailio_loads_policy_before_consuming_credentials():
 def test_kamailio_record_route_uses_internal_and_external_addresses():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
 
-    assert 'record_route_preset("10.0.0.10:5060;r2=on", "198.51.100.10:5060;r2=on")' in rendered
-    assert 'record_route_preset("198.51.100.10:5060;r2=on", "10.0.0.10:5060;r2=on")' in rendered
+    assert 'record_route_preset("10.0.0.10:$Rp;r2=on", "198.51.100.10:$Rp;r2=on")' in rendered
+    assert 'record_route_preset("198.51.100.10:$Rp;r2=on", "10.0.0.10:$Rp;r2=on")' in rendered
 
 
-def test_kamailio_listens_on_configured_transports():
+def test_kamailio_listens_on_configured_transports_and_ports():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
     assert "listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
     assert "listen=tcp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
     assert "if (proto == TCP)" in rendered
-    assert 'record_route_preset("10.0.0.10:5060;r2=on", "198.51.100.10:5060;transport=tcp;r2=on")' in rendered
-    assert 'record_route_preset("198.51.100.10:5060;r2=on", "10.0.0.10:5060;transport=tcp;r2=on")' in rendered
+    assert 'record_route_preset("10.0.0.10:$Rp;r2=on", "198.51.100.10:$Rp;transport=tcp;r2=on")' in rendered
+    assert 'record_route_preset("198.51.100.10:$Rp;r2=on", "10.0.0.10:$Rp;transport=tcp;r2=on")' in rendered
 
-    udp_only = SIPGatewaySpec.model_validate({**gateway_spec().model_dump(by_alias=True), "transports": ["udp"]})
-    rendered = render_kamailio_config(udp_only, "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
-    assert "listen=udp:0.0.0.0:5060" in rendered
+    multi = SIPGatewaySpec.model_validate(
+        {**gateway_spec().model_dump(by_alias=True), "transports": ["udp"], "ports": [5060, 5080]}
+    )
+    rendered = render_kamailio_config(multi, "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
+    assert "alias=ADVERTISED_ADDR:5060" in rendered
+    assert "alias=ADVERTISED_ADDR:5080" in rendered
+    assert "listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
+    assert "listen=udp:0.0.0.0:5080 advertise ADVERTISED_ADDR:5080" in rendered
     assert "listen=tcp:" not in rendered
     assert "transport=tcp" not in rendered
 

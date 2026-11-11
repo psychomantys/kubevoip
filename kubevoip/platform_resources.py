@@ -266,7 +266,12 @@ def build_gateway_service(
             "type": spec.service.type,
             "selector": component_labels("kamailio", name),
             "ports": [
-                {"name": f"sip-{transport}", "port": 5060, "protocol": transport.upper()}
+                {
+                    "name": f"sip-{transport}-{port}",
+                    "port": port,
+                    "protocol": transport.upper(),
+                }
+                for port in spec.ports
                 for transport in spec.transports
             ],
         },

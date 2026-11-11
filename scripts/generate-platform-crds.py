@@ -337,6 +337,13 @@ SPECS = {
                 default=["udp", "tcp"],
                 **{"x-kubernetes-list-type": "set"},
             ),
+            "ports": array(
+                integer(minimum=1, maximum=65535),
+                minItems=1,
+                maxItems=16,
+                default=[5060],
+                **{"x-kubernetes-list-type": "set"},
+            ),
             "service": service,
             "observability": observability,
         },

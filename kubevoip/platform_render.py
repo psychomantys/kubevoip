@@ -94,10 +94,10 @@ def render_kamailio_config(
     else:
 
         def preset(outbound: str, inbound: str) -> str:
-            line = f'record_route_preset("{outbound}:5060;r2=on", "{inbound}:5060;r2=on");'
+            line = f'record_route_preset("{outbound}:$Rp;r2=on", "{inbound}:$Rp;r2=on");'
             if "tcp" not in spec.transports:
                 return line
-            tcp_line = f'record_route_preset("{outbound}:5060;r2=on", "{inbound}:5060;transport=tcp;r2=on");'
+            tcp_line = f'record_route_preset("{outbound}:$Rp;r2=on", "{inbound}:$Rp;transport=tcp;r2=on");'
             return f"if (proto == TCP) {{ {tcp_line} }} else {{ {line} }}"
 
         record_route_line = (
@@ -177,6 +177,7 @@ def render_kamailio_config(
         internal_address=internal_address,
         auth_realm=gateway_name,
         transports=spec.transports,
+        ports=spec.ports,
         relay_sockets=relay_sockets,
         namespace=kamailio_string(namespace),
         gateway_name=kamailio_string(gateway_name),
