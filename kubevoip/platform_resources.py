@@ -210,7 +210,10 @@ def build_asterisk_pool_resources(
     service = {
         "apiVersion": "v1",
         "kind": "Service",
-        "metadata": metadata(base, **common),
+        "metadata": {
+            **metadata(base, **common),
+            "annotations": spec.service.annotations,
+        },
         "spec": {"type": "ClusterIP", "selector": labels, "ports": service_ports},
     }
     headless = {

@@ -675,6 +675,13 @@ spec:
                   x-kubernetes-validations:
                   - rule: has(self.configMapRef) || has(self.secretRef)
                     message: envFrom requires configMapRef or secretRef
+              service:
+                type: object
+                properties:
+                  annotations:
+                    type: object
+                    additionalProperties:
+                      type: string
             x-kubernetes-validations:
             - rule: '!has(self.applications) || !has(self.applications.voicemail)
                 || !self.applications.voicemail.enabled || has(self.databaseSecretRef)'

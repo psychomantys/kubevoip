@@ -24,6 +24,9 @@ def test_platform_crds_are_structural():
     assert spec_properties["envFrom"]["type"] == "array"
     assert "configMapRef" in spec_properties["envFrom"]["items"]["properties"]
     assert "secretRef" in spec_properties["envFrom"]["items"]["properties"]
+    assert spec_properties["service"]["properties"]["annotations"]["type"] == "object"
+    assert spec_properties["service"]["properties"]["annotations"]["additionalProperties"]["type"] == "string"
+    assert "type" not in spec_properties["service"]["properties"]
 
 
 def test_workflows_are_valid_yaml():

@@ -12,6 +12,9 @@ spec:
   replicas: 2
   applications:
     echoExtension: "600"
+  service:
+    annotations:
+      kubevoip.com/example: pool
   extensions:
     extra: |
       exten => 601,1,Answer()

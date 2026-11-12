@@ -301,6 +301,11 @@ SPECS = {
             "rtp": asterisk_config_overlay,
             "env": array(env_var),
             "envFrom": array(env_from_source),
+            "service": obj(
+                {
+                    "annotations": {"type": "object", "additionalProperties": string()},
+                }
+            ),
         }
     )
     | {
