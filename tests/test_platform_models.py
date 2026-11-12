@@ -330,6 +330,27 @@ def test_asterisk_pool_parses_env_and_env_from():
         AsteriskPoolSpec.model_validate({"envFrom": [{"prefix": "X_"}]})
 
 
+def test_asterisk_pool_parses_service_annotations():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "service": {
+                "annotations": {
+                    "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+                    "kubevoip.com/example": "pool",
+                }
+            }
+        }
+    )
+    assert spec.service.annotations == {
+        "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+        "kubevoip.com/example": "pool",
+    }
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"service": {"annotations": {"x": 1}}})
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"service": {"type": "LoadBalancer"}})
+
+
 def test_voicemail_mailbox_validates_email_and_fallback():
     spec = VoicemailMailboxSpec.model_validate(
         {

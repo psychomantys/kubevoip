@@ -260,3 +260,25 @@ def test_asterisk_pool_passes_env_and_env_from_to_container():
         {"secretRef": {"name": "db"}},
         {"configMapRef": {"name": "app-config"}},
     ]
+
+
+def test_asterisk_pool_applies_service_annotations():
+    owner = {**OWNER, "kind": "AsteriskPool"}
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "service": {
+                "annotations": {
+                    "external-dns.alpha.kubernetes.io/hostname": "apps.example.com",
+                    "kubevoip.com/example": "pool",
+                }
+            }
+        }
+    )
+    resources = build_asterisk_pool_resources("apps", "test", owner, spec)
+    services = {item["metadata"]["name"]: item for item in resources if item["kind"] == "Service"}
+
+    assert services["apps-asterisk-pool"]["metadata"]["annotations"] == {
+        "external-dns.alpha.kubernetes.io/hostname": "apps.example.com",
+        "kubevoip.com/example": "pool",
+    }
+    assert "annotations" not in services["apps-asterisk-pool-headless"]["metadata"]

@@ -206,6 +206,10 @@ class AsteriskConfigOverlay(Model):
     override: str | None = None
 
 
+class AsteriskPoolServiceSpec(Model):
+    annotations: dict[str, str] = Field(default_factory=dict)
+
+
 class AsteriskPoolSpec(Model):
     replicas: int = Field(default=1, ge=1, le=32)
     image: str = Field(default=DEFAULT_ASTERISK_WORKER_IMAGE, min_length=1)
@@ -216,6 +220,7 @@ class AsteriskPoolSpec(Model):
     rtp: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
     env: list[EnvVar] = Field(default_factory=list)
     env_from: list[EnvFromSource] = Field(default_factory=list, alias="envFrom")
+    service: AsteriskPoolServiceSpec = Field(default_factory=AsteriskPoolServiceSpec)
 
     @model_validator(mode="after")
     def validate_voicemail_database(self) -> "AsteriskPoolSpec":
