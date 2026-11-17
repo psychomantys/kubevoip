@@ -302,6 +302,90 @@ def test_kamailio_can_log_sip_headers_to_stdout():
     assert "$(msg(hdrs){s.replace,$var(cr),\\\\r}{s.replace,$var(lf),\\\\n})" in rendered
 
 
+def _gateway_with_aggressive_sbc(*, enabled: bool) -> SIPGatewaySpec:
+    return SIPGatewaySpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "networkProfileRef": {"name": "public"},
+            "mediaRelayRef": {"name": "home"},
+            "fix": {"aggressiveSbcPrivateContact": {"enabled": enabled}},
+        }
+    )
+
+
+def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
+    rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
+
+    assert 'loadmodule "htable.so"' in rendered
+    assert 'modparam("htable", "htable", "calleedu=>size=16;autoexpire=7200;")' in rendered
+    assert "route[FIX_CALLEE_DEST]" in rendered
+    assert "route[LOAD_CALLEE_DEST]" in rendered
+    assert "route[STORE_CALLEE_DEST]" in rendered
+    assert "route[CLEAR_CALLEE_DEST]" in rendered
+    assert "stage=ack_force_callee" in rendered
+    assert "stage=indialog_force_callee" in rendered
+    assert "stage=asterisk_callee_stored" in rendered
+    assert "stage=contact_rewritten" in rendered
+    assert 'append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5060>\\r\\n");' in rendered
+    assert "$sht(calleedu=>$ci) = $du;" in rendered
+    assert "kubevoip_asterisk_callee" in rendered
+    assert "route(LOAD_CALLEE_DEST);" in rendered
+    assert "route(STORE_CALLEE_DEST);" in rendered
+    assert "$(ci{s.replace,',''})" in rendered
+    assert "$(du{s.replace,',''})" in rendered
+    assert "+ $var(du_esc) +" in rendered
+    assert "if (isflagset(1))" in rendered
+    assert "if (!isflagset(1))" in rendered
+    assert "$dlg_var(callee_du)" not in rendered
+    load_idx = rendered.index("route[LOAD_CALLEE_DEST]")
+    sht_idx = rendered.index("$sht(calleedu=>$ci) != $null", load_idx)
+    sql_idx = rendered.index("kubevoip_asterisk_callee", load_idx)
+    assert sht_idx < sql_idx
+    # No hardcoded LB / public hostname IP aliases in the rendered script.
+    assert "alias=18." not in rendered
+    assert "voip.weni.ai" not in rendered
+    assert 'modparam("dialog", "default_timeout"' not in rendered
+    assert "is_myself" not in rendered
+
+
+def test_kamailio_aggressive_sbc_private_contact_fix_can_be_disabled():
+    rendered = render_kamailio_config(
+        _gateway_with_aggressive_sbc(enabled=False),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert 'loadmodule "htable.so"' not in rendered
+    assert "route[FIX_CALLEE_DEST]" not in rendered
+    assert "route[LOAD_CALLEE_DEST]" not in rendered
+    assert "stage=ack_force_callee" not in rendered
+    assert "stage=contact_rewritten" not in rendered
+    assert "kubevoip_asterisk_callee" not in rendered
+    assert "calleedu" not in rendered
+    assert "if (loose_route()) { route(RELAY); exit; }" in rendered
+    assert "if (is_method(\"ACK\")) { exit; }" in rendered
+
+
+def test_kamailio_aggressive_sbc_private_contact_keeps_private_ruri():
+    rendered = render_kamailio_config(
+        _gateway_with_aggressive_sbc(enabled=True),
+        "home",
+        "test",
+        "sip.example.com",
+        "sip.example.com",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert 'if ($rd =~ "^(10\\\\.|192\\\\.168\\\\.|172\\\\.(1[6-9]|2[0-9]|3[0-1])\\\\.)")' in rendered
+    assert "stage=contact_rewritten" in rendered
+    assert "insert into kubevoip_asterisk_callee" in rendered
+    assert "select destination from kubevoip_asterisk_callee" in rendered
+    assert "delete from kubevoip_asterisk_callee" in rendered
+
+
 def test_kamailio_can_include_sdp_body_in_sip_message_log():
     rendered = render_kamailio_config(
         SIPGatewaySpec.model_validate(

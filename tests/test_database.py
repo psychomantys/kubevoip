@@ -4,6 +4,7 @@ from sqlalchemy.engine import URL
 import kubevoip.database as database_module
 from kubevoip.database import (
     ActiveWatcher,
+    AsteriskCallee,
     AsteriskVoicemailMessage,
     AsteriskVoicemailUser,
     CallRoute,
@@ -83,6 +84,7 @@ def test_orm_models_cover_runtime_tables():
         SIPTrunk.__tablename__,
         SIPTrunkCIDR.__tablename__,
         CallRoute.__tablename__,
+        AsteriskCallee.__tablename__,
         AsteriskVoicemailUser.__tablename__,
         AsteriskVoicemailMessage.__tablename__,
         VoicemailMailbox.__tablename__,
@@ -99,6 +101,7 @@ def test_orm_models_cover_runtime_tables():
         "kubevoip_sip_trunk",
         "kubevoip_sip_trunk_cidr",
         "kubevoip_call_route",
+        "kubevoip_asterisk_callee",
         "voicemail",
         "voicemessages",
         "kubevoip_voicemail_mailbox",

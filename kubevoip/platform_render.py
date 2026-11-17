@@ -171,6 +171,29 @@ def render_kamailio_config(
         "' like left(r.called_number, length(r.called_number)-3) || '%')) "
         "order by d.position, r.priority, r.name limit 1"
     )
+    callee_store_query_prefix = (
+        "insert into kubevoip_asterisk_callee "
+        "(namespace, gateway_name, call_id, destination, expires_at) "
+        f"values ('{sql_namespace}', '{sql_gateway}', '"
+    )
+    callee_store_query_middle = "', '"
+    callee_store_query_suffix = (
+        "', now() + interval '2 hours') "
+        "on conflict (namespace, gateway_name, call_id) do update set "
+        "destination = excluded.destination, expires_at = excluded.expires_at"
+    )
+    callee_lookup_query_prefix = (
+        "select destination from kubevoip_asterisk_callee "
+        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
+        "and call_id='"
+    )
+    callee_lookup_query_suffix = "' and expires_at > now() limit 1"
+    callee_delete_query_prefix = (
+        "delete from kubevoip_asterisk_callee "
+        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
+        "and call_id='"
+    )
+    callee_delete_query_suffix = "'"
     return render_template(
         "kamailio.cfg.j2",
         external_address=external_address,
@@ -184,6 +207,7 @@ def render_kamailio_config(
         capture=capture,
         sip_headers=spec.observability.sip_headers,
         sdp=spec.observability.sdp,
+        aggressive_sbc_private_contact=spec.fix.aggressive_sbc_private_contact.enabled,
         capture_mode=capture_mode,
         hep_destination=f"sip:{kamailio_define(capture.hep_address)}:{capture.hep_port}",
         record_route_line=record_route_line,
@@ -201,4 +225,11 @@ def render_kamailio_config(
         route_query_middle=route_query_middle,
         route_query_suffix=route_query_suffix,
         route_query_end=route_query_end,
+        callee_store_query_prefix=callee_store_query_prefix,
+        callee_store_query_middle=callee_store_query_middle,
+        callee_store_query_suffix=callee_store_query_suffix,
+        callee_lookup_query_prefix=callee_lookup_query_prefix,
+        callee_lookup_query_suffix=callee_lookup_query_suffix,
+        callee_delete_query_prefix=callee_delete_query_prefix,
+        callee_delete_query_suffix=callee_delete_query_suffix,
     )

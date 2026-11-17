@@ -33,6 +33,35 @@ IP-authenticated trunks trust only `SIPTrunk.spec.inbound.allowedSourceCidrs`.
 Untrusted INVITEs receive a proxy-authentication challenge and must authenticate
 as a `SIPUser`.
 
+### Aggressive SBC + private Asterisk Contact
+
+Some external SBCs (for example passwordless SIP trunks) rewrite the ACK
+Request-URI to the public edge address when Asterisk advertises a private
+`Contact`. After Kamailio consumes Record-Route, that hairpins the ACK and
+Asterisk never completes the dialog (~32s SIP 408 / hangupcause 18).
+
+By default, `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` is
+`true`. Kamailio then:
+
+- stores the Asterisk destination URI per Call-ID when routing to an
+  `AsteriskPool` (or voicemail fallback) in PostgreSQL
+  (`kubevoip_asterisk_callee`) as the shared source of truth, with a per-pod
+  `htable` (`calleedu`) as an L1 cache for the common same-pod ACK path
+- forces in-dialog `ACK` / `BYE` to that stored destination only for trusted
+  trunks (`isflagset(1)`), and only when the Request-URI is not already a
+  private cluster address — so Asterisk→SBC return-path traffic is not
+  hairpinned back to Asterisk
+- rewrites AsteriskPool `2xx` `Contact` to the gateway advertised address
+
+Multi-replica SIPGateway deployments are safe: an ACK that lands on a different
+Kamailio pod than the INVITE loads the destination from PostgreSQL, fills the
+local L1 cache, then forces `$du`. Pod restart mid-call also recovers from
+Postgres. Sticky NLB affinity is not required.
+
+Set `enabled: false` to restore the previous Kamailio script for compatibility
+testing. No load-balancer IP aliases are rendered; destination recovery uses the
+stored Asterisk URI only.
+
 `CallRoute` resources belong to a `CallScope`. `DialPolicy` resources define the
 ordered scopes a caller can search. Authenticated SIP users use
 `SIPUser.spec.dialPolicyRef`. Trusted inbound trunk calls use

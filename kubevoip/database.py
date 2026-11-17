@@ -5,13 +5,14 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from alembic import command
 from alembic.config import Config
 from psycopg.conninfo import make_conninfo
-from sqlalchemy import Integer, LargeBinary, String, Text, create_engine, delete, inspect, select, text
+from sqlalchemy import DateTime, Integer, LargeBinary, String, Text, create_engine, delete, inspect, select, text
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.engine import URL
@@ -197,6 +198,16 @@ class CallRoute(Base):
     target_extension: Mapped[str | None] = mapped_column(String(20))
     target_host: Mapped[str | None] = mapped_column(String(253))
     owner_uid: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+class AsteriskCallee(Base):
+    __tablename__ = "kubevoip_asterisk_callee"
+
+    namespace: Mapped[str] = mapped_column(String(63), primary_key=True)
+    gateway_name: Mapped[str] = mapped_column(String(63), primary_key=True)
+    call_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    destination: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class AsteriskVoicemailUser(Base):

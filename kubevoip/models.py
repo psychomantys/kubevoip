@@ -270,6 +270,18 @@ class ObservabilitySpec(Model):
     sdp: SDPLogSpec = Field(default_factory=SDPLogSpec)
 
 
+class AggressiveSbcPrivateContactFixSpec(Model):
+    """Rewrite AsteriskPool Contact and recover ACK/BYE when SBCs replace private Contact with the edge address."""
+
+    enabled: bool = True
+
+
+class SIPGatewayFixSpec(Model):
+    aggressive_sbc_private_contact: AggressiveSbcPrivateContactFixSpec = Field(
+        default_factory=AggressiveSbcPrivateContactFixSpec,
+        alias="aggressiveSbcPrivateContact",
+    )
+
 
 class DigestAuthentication(Model):
     username_secret_ref: SecretKeyRef = Field(alias="usernameSecretRef")
@@ -408,6 +420,7 @@ class SIPGatewaySpec(Model):
     ports: list[int] = Field(default_factory=lambda: [5060], min_length=1, max_length=16)
     service: ServiceSpec = Field(default_factory=ServiceSpec)
     observability: ObservabilitySpec = Field(default_factory=ObservabilitySpec)
+    fix: SIPGatewayFixSpec = Field(default_factory=SIPGatewayFixSpec)
 
     _validate_address = field_validator("external_address")(validate_external_address)
     _validate_internal_address = field_validator("internal_address")(validate_external_address)

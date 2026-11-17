@@ -266,6 +266,29 @@ def test_gateway_sdp_logging_validation():
     assert spec.observability.sdp.enabled is True
 
 
+def test_gateway_aggressive_sbc_private_contact_fix_defaults_enabled():
+    spec = SIPGatewaySpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "networkProfileRef": {"name": "public"},
+            "mediaRelayRef": {"name": "home"},
+        }
+    )
+    assert spec.fix.aggressive_sbc_private_contact.enabled is True
+
+
+def test_gateway_aggressive_sbc_private_contact_fix_can_disable():
+    spec = SIPGatewaySpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "networkProfileRef": {"name": "public"},
+            "mediaRelayRef": {"name": "home"},
+            "fix": {"aggressiveSbcPrivateContact": {"enabled": False}},
+        }
+    )
+    assert spec.fix.aggressive_sbc_private_contact.enabled is False
+
+
 def test_asterisk_pool_voicemail_requires_database_ref():
     spec = AsteriskPoolSpec.model_validate(
         {
