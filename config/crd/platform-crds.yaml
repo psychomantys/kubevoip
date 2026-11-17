@@ -832,6 +832,15 @@ spec:
                       enabled:
                         type: boolean
                         default: false
+              fix:
+                type: object
+                properties:
+                  aggressiveSbcPrivateContact:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
             required:
             - databaseSecretRef
             - networkProfileRef

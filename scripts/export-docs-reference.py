@@ -15,6 +15,7 @@ DEFAULT_CRD = ROOT / "config/crd/platform-crds.yaml"
 FIELD_SECTIONS = {
     "SIPGateway": {
         "observability": "SIPGateway observability",
+        "fix": "SIPGateway fix",
     },
 }
 

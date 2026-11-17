@@ -4,6 +4,16 @@ All notable changes to KubeVoIP are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` (default `true`)
+  to recover ACK/BYE when aggressive SBCs replace a private Asterisk `Contact`
+  with the public edge address, including Contact rewrite on AsteriskPool `2xx`
+  replies. Destination recovery is trunk-gated, stored in PostgreSQL
+  (`kubevoip_asterisk_callee`) with a per-pod `htable` L1 cache for
+  multi-replica safety. Set `enabled: false` to keep the previous Kamailio
+  script.
+
 ## [0.6.8] - 2026-06-26
 
 ### Changed

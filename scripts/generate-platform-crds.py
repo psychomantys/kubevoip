@@ -81,6 +81,8 @@ capture = obj(
 sip_headers = obj({"enabled": {"type": "boolean", "default": False}})
 sdp = obj({"enabled": {"type": "boolean", "default": False}})
 observability = obj({"capture": capture, "sipHeaders": sip_headers, "sdp": sdp})
+aggressive_sbc_private_contact = obj({"enabled": {"type": "boolean", "default": True}})
+fix = obj({"aggressiveSbcPrivateContact": aggressive_sbc_private_contact})
 status = {"type": "object", "x-kubernetes-preserve-unknown-fields": True}
 voicemail_application = obj(
     {
@@ -297,6 +299,7 @@ SPECS = {
             "internalAddress": address,
             "service": service,
             "observability": observability,
+            "fix": fix,
         },
         ("databaseSecretRef", "networkProfileRef", "mediaRelayRef"),
     ),
