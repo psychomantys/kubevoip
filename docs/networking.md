@@ -76,9 +76,10 @@ By default, `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` is
   trunks (`isflagset(1)`), and only when the Request-URI is not already a
   private cluster address — so Asterisk→SBC return-path traffic is not
   hairpinned back to Asterisk
-- rewrites AsteriskPool `2xx` `Contact` to the gateway advertised address only
-  for trusted trunk calls (`$dlg_var(sbc_trunk)`), so authenticated SIP users
-  keep the private Asterisk `Contact`
+- rewrites AsteriskPool `2xx` `Contact` to the gateway advertised address and
+  first configured `SIPGateway.spec.ports` entry only for trusted trunk calls
+  (`$dlg_var(sbc_trunk)`), so authenticated SIP users keep the private Asterisk
+  `Contact`
 - as a safety net for non-trunk in-dialog requests whose Request-URI is the
   gateway itself (`uri == myself`), forces `$du` to the stored Asterisk
   destination when one exists

@@ -296,6 +296,17 @@ def test_kamailio_listens_on_configured_transports_and_ports():
     assert "listen=udp:0.0.0.0:5080 advertise ADVERTISED_ADDR:5080" in rendered
     assert "listen=tcp:" not in rendered
     assert "transport=tcp" not in rendered
+    assert 'append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5060>\\r\\n");' in rendered
+    assert 'modparam("presence", "server_address", "sip:ADVERTISED_ADDR:5060")' in rendered
+
+    custom_primary = SIPGatewaySpec.model_validate(
+        {**gateway_spec().model_dump(by_alias=True), "transports": ["udp"], "ports": [5080, 5060]}
+    )
+    rendered = render_kamailio_config(
+        custom_primary, "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"]
+    )
+    assert 'append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5080>\\r\\n");' in rendered
+    assert 'modparam("presence", "server_address", "sip:ADVERTISED_ADDR:5080")' in rendered
 
 
 def test_kamailio_uses_single_record_route_when_addresses_match():

@@ -733,7 +733,7 @@ onreply_route[MANAGE_REPLY] {
 {% if aggressive_sbc_private_contact %}
   if (status =~ "2[0-9][0-9]" && $dlg_var(sbc_trunk) == "1" && $sht(calleedu=>$ci) != $null && $sht(calleedu=>$ci) != "") {
     remove_hf("Contact");
-    append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5060>\r\n");
+    append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":{{ ports[0] }}>\r\n");
     xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=contact_rewritten call_id=$ci status=$rs\n");
   }
 {% endif %}
