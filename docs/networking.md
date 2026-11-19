@@ -32,8 +32,9 @@ resolves its IPv4 `A` records during reconcile (IPv6/`AAAA` is not used yet):
   `internalAdvertisedIps` on `SIPGateway`, or per-replica `advertisedIps` on
   `MediaRelay` status relays).
 - Kamailio keeps the hostname in `advertise`, Record-Route, and Contact rewrite
-  targets, and adds `alias=<ip>:5060` for each resolved IPv4 so in-dialog
-  requests that use an NLB A-record IP still match `myself`.
+  targets, and adds `alias=<ip>:<port>` for each resolved IPv4 and each
+  configured `SIPGateway.spec.ports` entry so in-dialog requests that use an
+  NLB A-record IP still match `myself`.
 - RTPengine no longer runs `getent` at startup. The operator passes explicit
   advertise IPs into `--interface`. One IP uses `external/$POD_IP!<ip>`; two or
   more use equal round-robin names `external:0`, `external:1`, … so SDP `c=`
@@ -103,8 +104,16 @@ Normal changes to SIP users, trunks, routes, scopes, policies, caller ID, and
 digest credentials update PostgreSQL and do not roll Kamailio pods. Static
 gateway/network changes can still roll pods.
 
-Forwarding needs the same public and private port numbers. Send UDP `5060` to
-the Kamailio address. Send each RTPengine replica's assigned range to that
+`SIPGateway.spec.transports` selects the SIP transports Kamailio accepts. It
+defaults to `["udp", "tcp"]`. `SIPGateway.spec.ports` selects the SIP listen
+ports and defaults to `[5060]`. The gateway Service exposes one Service port for
+each transport and port combination. A LoadBalancer Service that carries both
+UDP and TCP needs a Kubernetes version and load balancer implementation with
+mixed-protocol support (Kubernetes 1.26 or newer); set `transports: ["udp"]` if
+yours does not.
+
+Forwarding needs the same public and private port numbers. Send each enabled
+transport and port to the Kamailio address. Send each RTPengine replica's assigned range to that
 replica's address. Do not translate those ports.
 
 `HostNetwork` avoids Kubernetes Service NAT for media but binds ports directly on

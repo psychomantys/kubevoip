@@ -183,6 +183,32 @@ def test_gateway_service_validation_remains_provider_neutral():
         )
 
 
+def test_gateway_transports_validation():
+    base = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+    }
+    assert SIPGatewaySpec.model_validate(base).transports == ["udp", "tcp"]
+    assert SIPGatewaySpec.model_validate({**base, "transports": ["tcp"]}).transports == ["tcp"]
+    for transports in ([], ["udp", "udp"], ["tls"]):
+        with pytest.raises(ValidationError):
+            SIPGatewaySpec.model_validate({**base, "transports": transports})
+
+
+def test_gateway_ports_validation():
+    base = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+    }
+    assert SIPGatewaySpec.model_validate(base).ports == [5060]
+    assert SIPGatewaySpec.model_validate({**base, "ports": [5060, 5080]}).ports == [5060, 5080]
+    for ports in ([], [5060, 5060], [0], [65536]):
+        with pytest.raises(ValidationError):
+            SIPGatewaySpec.model_validate({**base, "ports": ports})
+
+
 def test_gateway_homer_capture_validation():
     spec = SIPGatewaySpec.model_validate(
         {
@@ -282,6 +308,49 @@ def test_asterisk_pool_voicemail_requires_database_ref():
                 "applications": {"voicemail": {"enabled": True, "mainExtension": "700", "depositExtension": "700"}},
             }
         )
+
+
+def test_asterisk_pool_parses_config_overlays():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()"},
+            "pjsip": {"override": "[custom]\ntype=endpoint\n"},
+            "rtp": {"extra": "icesupport=yes\n", "override": "[general]\nrtpstart=12000\n"},
+        }
+    )
+    assert spec.extensions.extra == "exten => 601,1,Hangup()"
+    assert spec.pjsip.override == "[custom]\ntype=endpoint\n"
+    assert spec.rtp.extra == "icesupport=yes\n"
+    assert spec.rtp.override == "[general]\nrtpstart=12000\n"
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"extensions": {"unknown": "nope"}})
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"pjsip": {"extra": 1}})
+
+
+def test_asterisk_pool_parses_env_and_env_from():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "env": [
+                {"name": "LOG_LEVEL", "value": "debug"},
+                {"name": "API_TOKEN", "valueFrom": {"secretKeyRef": {"name": "api", "key": "token"}}},
+            ],
+            "envFrom": [
+                {"secretRef": {"name": "app-secrets"}},
+                {"prefix": "CFG_", "configMapRef": {"name": "app-config", "optional": True}},
+            ],
+        }
+    )
+    assert spec.env[0].name == "LOG_LEVEL"
+    assert spec.env[0].value == "debug"
+    assert spec.env[1].value_from.secret_key_ref.name == "api"
+    assert spec.env_from[0].secret_ref.name == "app-secrets"
+    assert spec.env_from[1].prefix == "CFG_"
+    assert spec.env_from[1].config_map_ref.optional is True
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"env": [{"name": "X", "unknown": "nope"}]})
+    with pytest.raises(ValidationError):
+        AsteriskPoolSpec.model_validate({"envFrom": [{"prefix": "X_"}]})
 
 
 def test_voicemail_mailbox_validates_email_and_fallback():

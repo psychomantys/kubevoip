@@ -190,6 +190,68 @@ def test_worker_configs_can_preselect_voicemail_main_mailbox():
     assert "VoiceMailMain()" not in configs["extensions.conf"]
 
 
+def test_worker_configs_append_extra_fragments():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()"},
+            "pjsip": {"extra": "[custom]\ntype=endpoint\ncontext=applications"},
+            "rtp": {"extra": "icesupport=yes"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert "exten => 600,1,Answer()" in configs["extensions.conf"]
+    assert "exten => 601,1,Hangup()" in configs["extensions.conf"]
+    assert configs["extensions.conf"].index("exten => 600,1,Answer()") < configs["extensions.conf"].index(
+        "exten => 601,1,Hangup()"
+    )
+    assert "allow=ulaw" in configs["pjsip.conf"]
+    assert "[custom]" in configs["pjsip.conf"]
+    assert "rtpstart=10000" in configs["rtp.conf"]
+    assert "icesupport=yes" in configs["rtp.conf"]
+    assert configs["extensions.conf"].endswith("\n")
+    assert configs["pjsip.conf"].endswith("\n")
+    assert configs["rtp.conf"].endswith("\n")
+
+
+def test_worker_configs_override_replaces_template():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"override": "[custom]\nexten => 900,1,Hangup()\n"},
+            "pjsip": {"override": "[custom]\ntype=endpoint\n"},
+            "rtp": {"override": "[general]\nrtpstart=12000\nrtpend=12999\n"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert configs["extensions.conf"] == "[custom]\nexten => 900,1,Hangup()\n"
+    assert "exten => 600,1,Answer()" not in configs["extensions.conf"]
+    assert configs["pjsip.conf"] == "[custom]\ntype=endpoint\n"
+    assert "allow=ulaw" not in configs["pjsip.conf"]
+    assert configs["rtp.conf"] == "[general]\nrtpstart=12000\nrtpend=12999\n"
+    assert "rtpstart=10000" not in configs["rtp.conf"]
+
+
+def test_worker_configs_override_takes_precedence_over_extra():
+    spec = AsteriskPoolSpec.model_validate(
+        {
+            "extensions": {"extra": "exten => 601,1,Hangup()", "override": "[only]\nexten => 900,1,Hangup()"},
+            "pjsip": {"extra": "[ignored]\ntype=aor", "override": "[only]\ntype=endpoint"},
+            "rtp": {"extra": "icesupport=yes", "override": "[general]\nrtpstart=12000"},
+        }
+    )
+    configs = render_worker_configs(spec)
+
+    assert configs["extensions.conf"] == "[only]\nexten => 900,1,Hangup()\n"
+    assert "exten => 600" not in configs["extensions.conf"]
+    assert "exten => 601" not in configs["extensions.conf"]
+    assert configs["pjsip.conf"] == "[only]\ntype=endpoint\n"
+    assert "[ignored]" not in configs["pjsip.conf"]
+    assert configs["rtp.conf"] == "[general]\nrtpstart=12000\n"
+    assert "icesupport=yes" not in configs["rtp.conf"]
+    assert "rtpstart=10000" not in configs["rtp.conf"]
+
+
 def test_kamailio_loads_policy_before_consuming_credentials():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
 
@@ -199,8 +261,41 @@ def test_kamailio_loads_policy_before_consuming_credentials():
 def test_kamailio_record_route_uses_internal_and_external_addresses():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
 
-    assert 'record_route_preset("10.0.0.10:5060;r2=on", "198.51.100.10:5060;r2=on")' in rendered
-    assert 'record_route_preset("198.51.100.10:5060;r2=on", "10.0.0.10:5060;r2=on")' in rendered
+    assert 'record_route_preset("10.0.0.10:$Rp;r2=on", "198.51.100.10:$Rp;r2=on")' in rendered
+    assert 'record_route_preset("198.51.100.10:$Rp;r2=on", "10.0.0.10:$Rp;r2=on")' in rendered
+
+
+def test_kamailio_listens_on_configured_transports_and_ports():
+    rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
+    assert "listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
+    assert "listen=tcp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
+    assert "if (proto == TCP)" in rendered
+    assert 'record_route_preset("10.0.0.10:$Rp;r2=on", "198.51.100.10:$Rp;transport=tcp;r2=on")' in rendered
+    assert 'record_route_preset("198.51.100.10:$Rp;r2=on", "10.0.0.10:$Rp;transport=tcp;r2=on")' in rendered
+
+    multi = SIPGatewaySpec.model_validate(
+        {**gateway_spec().model_dump(by_alias=True), "transports": ["udp"], "ports": [5060, 5080]}
+    )
+    rendered = render_kamailio_config(
+        multi,
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+        external_address_aliases=["198.51.100.10"],
+        internal_address_aliases=["10.0.0.10"],
+    )
+    assert "alias=ADVERTISED_ADDR:5060" in rendered
+    assert "alias=ADVERTISED_ADDR:5080" in rendered
+    assert "alias=198.51.100.10:5060" in rendered
+    assert "alias=198.51.100.10:5080" in rendered
+    assert "alias=10.0.0.10:5060" in rendered
+    assert "alias=10.0.0.10:5080" in rendered
+    assert "listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
+    assert "listen=udp:0.0.0.0:5080 advertise ADVERTISED_ADDR:5080" in rendered
+    assert "listen=tcp:" not in rendered
+    assert "transport=tcp" not in rendered
 
 
 def test_kamailio_uses_single_record_route_when_addresses_match():

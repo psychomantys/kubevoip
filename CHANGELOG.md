@@ -14,10 +14,28 @@ All notable changes to KubeVoIP are documented in this file.
   multi-replica safety. Set `enabled: false` to keep the previous Kamailio
   script.
 - Operator IPv4 `A`-record resolution for hostname external addresses: status
-  `advertisedIps` (and gateway `internalAdvertisedIps`), Kamailio `alias=<ip>:5060`
-  entries while keeping hostname advertise/Record-Route/Contact, RTPengine equal
-  round-robin advertise interfaces (`external:N`), roll on IP-set change, and
-  last-known IP cache when DNS fails after a prior success.
+  `advertisedIps` (and gateway `internalAdvertisedIps`), Kamailio
+  `alias=<ip>:<port>` entries for each configured SIP port while keeping
+  hostname advertise/Record-Route/Contact, RTPengine equal round-robin
+  advertise interfaces (`external:N`), roll on IP-set change, and last-known
+  IP cache when DNS fails after a prior success.
+
+## [0.6.9] - 2026-11-05
+
+### Added
+
+- `SIPGateway.spec.transports` selects the SIP transports Kamailio listens on
+  and the gateway Service exposes. It defaults to `udp` and `tcp`; set it to
+  `["udp"]` to keep the previous UDP-only behavior.
+- `SIPGateway.spec.ports` selects the SIP listen ports Kamailio binds and the
+  gateway Service exposes for each configured transport. It defaults to
+  `[5060]`.
+- `AsteriskPool.spec.env` and `AsteriskPool.spec.envFrom` for Kubernetes-style
+  container environment variables and config/secret references.
+- `AsteriskPool.spec.extensions`, `pjsip`, and `rtp` overlays to append or
+  override rendered Asterisk configuration fragments.
+- Build workflow that publishes multi-architecture operator images on release
+  tags.
 
 ## [0.6.8] - 2026-06-26
 

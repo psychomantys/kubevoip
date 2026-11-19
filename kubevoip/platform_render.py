@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-from kubevoip.models import AsteriskPoolSpec, SIPGatewaySpec
+from kubevoip.models import AsteriskConfigOverlay, AsteriskPoolSpec, SIPGatewaySpec
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 TEMPLATES = Environment(
@@ -27,16 +27,31 @@ def render_template(name: str, **values: object) -> str:
     return TEMPLATES.get_template(name).render(**values)
 
 
+def _ensure_trailing_newline(value: str) -> str:
+    return value if value.endswith("\n") else f"{value}\n"
+
+
+def apply_config_overlay(base: str, overlay: AsteriskConfigOverlay) -> str:
+    if overlay.override is not None:
+        return _ensure_trailing_newline(overlay.override)
+    if overlay.extra:
+        return _ensure_trailing_newline(base) + _ensure_trailing_newline(overlay.extra)
+    return base
+
+
 def render_worker_configs(spec: AsteriskPoolSpec, database: dict[str, str] | None = None) -> dict[str, str]:
     voicemail = spec.applications.voicemail
     configs = {
-        "pjsip.conf": render_template("asterisk/pjsip.conf.j2"),
-        "extensions.conf": render_template(
-            "asterisk/extensions.conf.j2",
-            echo_extension=spec.applications.echo_extension,
-            voicemail=voicemail,
+        "pjsip.conf": apply_config_overlay(render_template("asterisk/pjsip.conf.j2"), spec.pjsip),
+        "extensions.conf": apply_config_overlay(
+            render_template(
+                "asterisk/extensions.conf.j2",
+                echo_extension=spec.applications.echo_extension,
+                voicemail=voicemail,
+            ),
+            spec.extensions,
         ),
-        "rtp.conf": render_template("asterisk/rtp.conf.j2"),
+        "rtp.conf": apply_config_overlay(render_template("asterisk/rtp.conf.j2"), spec.rtp),
         "logger.conf": render_template("asterisk/logger.conf.j2"),
     }
     if voicemail.enabled:
@@ -81,9 +96,17 @@ def render_kamailio_config(
     if internal_address == external_address:
         record_route_line = "record_route();"
     else:
+
+        def preset(outbound: str, inbound: str) -> str:
+            line = f'record_route_preset("{outbound}:$Rp;r2=on", "{inbound}:$Rp;r2=on");'
+            if "tcp" not in spec.transports:
+                return line
+            tcp_line = f'record_route_preset("{outbound}:$Rp;r2=on", "{inbound}:$Rp;transport=tcp;r2=on");'
+            return f"if (proto == TCP) {{ {tcp_line} }} else {{ {line} }}"
+
         record_route_line = (
-            f'if (isflagset(1)) {{ record_route_preset("{internal_record_route}:5060;r2=on", "{external_record_route}:5060;r2=on"); }} '
-            f'else {{ record_route_preset("{external_record_route}:5060;r2=on", "{internal_record_route}:5060;r2=on"); }}'
+            f"if (isflagset(1)) {{ {preset(internal_record_route, external_record_route)} }} "
+            f"else {{ {preset(external_record_route, internal_record_route)} }}"
         )
     sql_namespace = namespace.replace("'", "''")
     sql_gateway = gateway_name.replace("'", "''")
@@ -182,6 +205,8 @@ def render_kamailio_config(
         external_address_aliases=external_aliases,
         internal_address_aliases=internal_aliases,
         auth_realm=gateway_name,
+        transports=spec.transports,
+        ports=spec.ports,
         relay_sockets=relay_sockets,
         namespace=kamailio_string(namespace),
         gateway_name=kamailio_string(gateway_name),

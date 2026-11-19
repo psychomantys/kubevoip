@@ -1,0 +1,31 @@
+# AsteriskPool extra appends to the generated file. override replaces it entirely.
+# When extensions.override is set, the generated [applications] dialplan from
+# spec.applications (echo and voicemail extensions) is not rendered. Voicemail
+# still mounts voicemail.conf and ODBC files when applications.voicemail.enabled
+# is true; include those extensions in the override if they are still required.
+apiVersion: kubevoip.com/v1alpha1
+kind: AsteriskPool
+metadata:
+  name: applications
+  namespace: kubevoip-platform
+spec:
+  replicas: 2
+  applications:
+    echoExtension: "600"
+  extensions:
+    extra: |
+      exten => 601,1,Answer()
+       same => n,Playback(demo-congrats)
+       same => n,Hangup()
+  pjsip:
+    extra: |
+      [custom]
+      type=endpoint
+      context=applications
+      disallow=all
+      allow=ulaw
+  rtp:
+    override: |
+      [general]
+      rtpstart=12000
+      rtpend=12999

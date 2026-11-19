@@ -591,6 +591,90 @@ spec:
                     - rule: self.mainExtension != self.depositExtension
                       message: voicemail mainExtension and depositExtension must be
                         different
+              extensions: &id002
+                type: object
+                properties:
+                  extra:
+                    type: string
+                  override:
+                    type: string
+              pjsip: *id002
+              rtp: *id002
+              env:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: *id001
+                    value:
+                      type: string
+                    valueFrom:
+                      type: object
+                      properties:
+                        fieldRef:
+                          type: object
+                          properties:
+                            apiVersion:
+                              type: string
+                            fieldPath: *id001
+                          required:
+                          - fieldPath
+                        resourceFieldRef:
+                          type: object
+                          properties:
+                            containerName:
+                              type: string
+                            resource: *id001
+                            divisor:
+                              type: string
+                          required:
+                          - resource
+                        configMapKeyRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            key: *id001
+                            optional:
+                              type: boolean
+                          required:
+                          - key
+                        secretKeyRef:
+                          type: object
+                          properties:
+                            name:
+                              type: string
+                            key: *id001
+                            optional:
+                              type: boolean
+                          required:
+                          - key
+                  required:
+                  - name
+              envFrom:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    prefix:
+                      type: string
+                    configMapRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        optional:
+                          type: boolean
+                    secretRef:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        optional:
+                          type: boolean
+                  x-kubernetes-validations:
+                  - rule: has(self.configMapRef) || has(self.secretRef)
+                    message: envFrom requires configMapRef or secretRef
             x-kubernetes-validations:
             - rule: '!has(self.applications) || !has(self.applications.voicemail)
                 || !self.applications.voicemail.enabled || has(self.databaseSecretRef)'
@@ -759,6 +843,30 @@ spec:
                 minLength: 1
                 maxLength: 253
               internalAddress: *id003
+              transports:
+                type: array
+                items:
+                  type: string
+                  enum:
+                  - udp
+                  - tcp
+                minItems: 1
+                maxItems: 2
+                default:
+                - udp
+                - tcp
+                x-kubernetes-list-type: set
+              ports:
+                type: array
+                items:
+                  type: integer
+                  minimum: 1
+                  maximum: 65535
+                minItems: 1
+                maxItems: 16
+                default:
+                - 5060
+                x-kubernetes-list-type: set
               service:
                 type: object
                 properties:

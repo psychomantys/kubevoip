@@ -219,9 +219,11 @@ def build_asterisk_pool_resources(
     }
     service_ports = [{"name": "sip", "port": 5060, "protocol": "UDP"}]
     env_from = [{"secretRef": {"name": spec.database_secret_ref.name}}] if spec.applications.voicemail.enabled and spec.database_secret_ref else []
+    env_from.extend(item.model_dump(by_alias=True, exclude_none=True) for item in spec.env_from)
     env = [
         {"name": "POD_NAMESPACE", "valueFrom": {"fieldRef": {"fieldPath": "metadata.namespace"}}},
         {"name": "POD_IP", "valueFrom": {"fieldRef": {"fieldPath": "status.podIP"}}},
+        *[item.model_dump(by_alias=True, exclude_none=True) for item in spec.env],
     ]
     service = {
         "apiVersion": "v1",
@@ -281,7 +283,15 @@ def build_gateway_service(
         "spec": {
             "type": spec.service.type,
             "selector": component_labels("kamailio", name),
-            "ports": [{"name": "sip-udp", "port": 5060, "protocol": "UDP"}],
+            "ports": [
+                {
+                    "name": f"sip-{transport}-{port}",
+                    "port": port,
+                    "protocol": transport.upper(),
+                }
+                for port in spec.ports
+                for transport in spec.transports
+            ],
         },
     }
     if spec.service.type != "ClusterIP":

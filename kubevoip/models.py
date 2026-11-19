@@ -143,11 +143,79 @@ class DatabaseSecretRef(Model):
     name: str = Field(min_length=1)
 
 
+class ObjectFieldSelector(Model):
+    api_version: str | None = Field(default=None, alias="apiVersion")
+    field_path: str = Field(alias="fieldPath", min_length=1)
+
+
+class ResourceFieldSelector(Model):
+    container_name: str | None = Field(default=None, alias="containerName")
+    resource: str = Field(min_length=1)
+    divisor: str | None = None
+
+
+class ConfigMapKeySelector(Model):
+    name: str | None = None
+    key: str = Field(min_length=1)
+    optional: bool | None = None
+
+
+class SecretKeySelector(Model):
+    name: str | None = None
+    key: str = Field(min_length=1)
+    optional: bool | None = None
+
+
+class EnvVarSource(Model):
+    field_ref: ObjectFieldSelector | None = Field(default=None, alias="fieldRef")
+    resource_field_ref: ResourceFieldSelector | None = Field(default=None, alias="resourceFieldRef")
+    config_map_key_ref: ConfigMapKeySelector | None = Field(default=None, alias="configMapKeyRef")
+    secret_key_ref: SecretKeySelector | None = Field(default=None, alias="secretKeyRef")
+
+
+class EnvVar(Model):
+    name: str = Field(min_length=1)
+    value: str | None = None
+    value_from: EnvVarSource | None = Field(default=None, alias="valueFrom")
+
+
+class ConfigMapEnvSource(Model):
+    name: str | None = None
+    optional: bool | None = None
+
+
+class SecretEnvSource(Model):
+    name: str | None = None
+    optional: bool | None = None
+
+
+class EnvFromSource(Model):
+    prefix: str | None = None
+    config_map_ref: ConfigMapEnvSource | None = Field(default=None, alias="configMapRef")
+    secret_ref: SecretEnvSource | None = Field(default=None, alias="secretRef")
+
+    @model_validator(mode="after")
+    def validate_source(self) -> "EnvFromSource":
+        if not self.config_map_ref and not self.secret_ref:
+            raise ValueError("envFrom requires configMapRef or secretRef")
+        return self
+
+
+class AsteriskConfigOverlay(Model):
+    extra: str | None = None
+    override: str | None = None
+
+
 class AsteriskPoolSpec(Model):
     replicas: int = Field(default=1, ge=1, le=32)
     image: str = Field(default=DEFAULT_ASTERISK_WORKER_IMAGE, min_length=1)
     database_secret_ref: DatabaseSecretRef | None = Field(default=None, alias="databaseSecretRef")
     applications: ApplicationsSpec = Field(default_factory=ApplicationsSpec)
+    extensions: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    pjsip: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    rtp: AsteriskConfigOverlay = Field(default_factory=AsteriskConfigOverlay)
+    env: list[EnvVar] = Field(default_factory=list)
+    env_from: list[EnvFromSource] = Field(default_factory=list, alias="envFrom")
 
     @model_validator(mode="after")
     def validate_voicemail_database(self) -> "AsteriskPoolSpec":
@@ -343,12 +411,30 @@ class SIPGatewaySpec(Model):
     media_relay_ref: LocalReference = Field(alias="mediaRelayRef")
     external_address: str | None = Field(default=None, alias="externalAddress", min_length=1)
     internal_address: str | None = Field(default=None, alias="internalAddress", min_length=1)
+    transports: list[Literal["udp", "tcp"]] = Field(default_factory=lambda: ["udp", "tcp"], min_length=1, max_length=2)
+    ports: list[int] = Field(default_factory=lambda: [5060], min_length=1, max_length=16)
     service: ServiceSpec = Field(default_factory=ServiceSpec)
     observability: ObservabilitySpec = Field(default_factory=ObservabilitySpec)
     fix: SIPGatewayFixSpec = Field(default_factory=SIPGatewayFixSpec)
 
     _validate_address = field_validator("external_address")(validate_external_address)
     _validate_internal_address = field_validator("internal_address")(validate_external_address)
+
+    @field_validator("transports")
+    @classmethod
+    def validate_transports(cls, value: list[str]) -> list[str]:
+        if len(set(value)) != len(value):
+            raise ValueError("transports must be unique")
+        return value
+
+    @field_validator("ports")
+    @classmethod
+    def validate_ports(cls, value: list[int]) -> list[int]:
+        if any(port < 1 or port > 65535 for port in value):
+            raise ValueError("ports must be between 1 and 65535")
+        if len(set(value)) != len(value):
+            raise ValueError("ports must be unique")
+        return value
 
     @model_validator(mode="after")
     def validate_service(self) -> "SIPGatewaySpec":
