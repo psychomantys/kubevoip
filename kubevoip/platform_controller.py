@@ -23,6 +23,7 @@ from kubevoip.database import (
     reconcile_voicemail_mailbox,
     trunk_digest_ha1,
 )
+from kubevoip.dnsutil import AddressResolutionError, resolve_ipv4_addresses
 from kubevoip.k8s import Kubernetes
 from kubevoip.models import (
     AsteriskPoolSpec,
@@ -80,6 +81,41 @@ def resolve_external_address(
         if address:
             return address, source
     return None, "Unresolved"
+
+
+def _cached_advertised_ips(previous: Any) -> list[str] | None:
+    if not isinstance(previous, list) or not previous:
+        return None
+    ips: list[str] = []
+    for item in previous:
+        if not isinstance(item, str):
+            return None
+        try:
+            parsed = ipaddress.ip_address(item)
+        except ValueError:
+            return None
+        if parsed.version != 4:
+            return None
+        ips.append(str(parsed))
+    return sorted(set(ips))
+
+
+def resolve_advertised_ipv4_addresses(
+    address: str,
+    previous: Any = None,
+) -> tuple[list[str], bool]:
+    """Resolve ``address`` to sorted IPv4 advertise IPs.
+
+    Returns ``(ips, used_cache)``. On resolution failure, reuses a valid cached
+    set from ``previous`` when available.
+    """
+    cached = _cached_advertised_ips(previous)
+    try:
+        return resolve_ipv4_addresses(address), False
+    except AddressResolutionError as error:
+        if cached:
+            return cached, True
+        raise DependencyError(f"failed to resolve IPv4 addresses for {address!r}") from error
 
 
 def _database_secret(namespace: str, name: str, kubernetes: Kubernetes) -> dict[str, str]:
@@ -153,8 +189,15 @@ def reconcile_media_relay(body: dict[str, Any], raw_spec: dict[str, Any], kubern
     for service in build_media_relay_services(name, namespace, body, spec):
         kubernetes.apply(service)
     overrides = {item.replica: item.external_address for item in spec.network.replica_overrides}
+    previous_relays = {
+        item.get("replica"): item
+        for item in body.get("status", {}).get("relays") or []
+        if isinstance(item, dict)
+    }
     addresses: list[str] = []
+    advertised_ip_sets: list[list[str]] = []
     relay_status: list[dict[str, Any]] = []
+    used_cached_ips = False
     for index, (start, end) in enumerate(partition_range(spec.media.start, spec.media.end, spec.replicas)):
         service_name = f"{name}-rtpengine-{index}"
         address, source = resolve_external_address(
@@ -170,7 +213,11 @@ def reconcile_media_relay(body: dict[str, Any], raw_spec: dict[str, Any], kubern
             if spec.network.service.type == "LoadBalancer":
                 raise WaitingForLoadBalancerError(f"waiting for LoadBalancer address for RTPengine replica {index}")
             raise DependencyError(f"external address for RTPengine replica {index} is unavailable")
+        previous = previous_relays.get(index, {}).get("advertisedIps")
+        advertised_ips, cached = resolve_advertised_ipv4_addresses(address, previous)
+        used_cached_ips = used_cached_ips or cached
         addresses.append(address)
+        advertised_ip_sets.append(advertised_ips)
         relay_status.append(
             {
                 "replica": index,
@@ -178,12 +225,19 @@ def reconcile_media_relay(body: dict[str, Any], raw_spec: dict[str, Any], kubern
                 "internalAddress": f"{service_name}.{namespace}.svc.cluster.local",
                 "externalAddress": address,
                 "addressSource": source,
+                "advertisedIps": advertised_ips,
                 "media": {"start": start, "end": end},
             }
         )
-    for resource in build_media_relay_resources(name, namespace, body, spec, addresses):
+    for resource in build_media_relay_resources(name, namespace, body, spec, addresses, advertised_ip_sets):
         kubernetes.apply(resource)
     ready = sum(kubernetes.ready_deployment_replicas(namespace, f"{name}-rtpengine-{index}") for index in range(spec.replicas))
+    address_reason = "UsingCachedAdvertisedIps" if used_cached_ips else "Resolved"
+    address_message = (
+        "Using cached advertised IPv4 addresses after DNS resolution failure"
+        if used_cached_ips
+        else "All relay external addresses are resolved"
+    )
     return platform_status(
         body["metadata"].get("generation", 1),
         ready == spec.replicas,
@@ -193,7 +247,7 @@ def reconcile_media_relay(body: dict[str, Any], raw_spec: dict[str, Any], kubern
         body.get("status", {}).get("conditions"),
         [
             ("ReferencesResolved", True, "Resolved", "NetworkProfile reference is resolved"),
-            ("ExternalAddressResolved", True, "Resolved", "All relay external addresses are resolved"),
+            ("ExternalAddressResolved", True, address_reason, address_message),
             ("ConfigurationReady", True, "Rendered", "RTPengine configuration is rendered"),
             ("ReplicasReady", ready == spec.replicas, "Available" if ready == spec.replicas else "Reconciling", f"{ready}/{spec.replicas} RTPengine replicas are ready"),
         ],
@@ -261,6 +315,16 @@ def reconcile_gateway(body: dict[str, Any], raw_spec: dict[str, Any], kubernetes
             raise WaitingForLoadBalancerError("waiting for LoadBalancer address for SIP gateway")
         raise DependencyError("SIP gateway external address is unavailable")
     internal_address = spec.internal_address or service_address or f"{service_name}.{namespace}.svc.cluster.local"
+    previous_status = body.get("status", {})
+    external_aliases, external_cached = resolve_advertised_ipv4_addresses(
+        address,
+        previous_status.get("advertisedIps"),
+    )
+    internal_aliases, internal_cached = resolve_advertised_ipv4_addresses(
+        internal_address,
+        previous_status.get("internalAdvertisedIps"),
+    )
+    used_cached_ips = external_cached or internal_cached
     try:
         media = kubernetes.read_custom(namespace, "mediarelays", spec.media_relay_ref.name)
     except ApiException as error:
@@ -274,9 +338,25 @@ def reconcile_gateway(body: dict[str, Any], raw_spec: dict[str, Any], kubernetes
         database_ready(database)
     except Exception as error:
         raise DependencyError("gateway database is unavailable") from error
-    for resource in build_gateway_resources(name, namespace, body, spec, address, internal_address, relay_endpoints):
+    for resource in build_gateway_resources(
+        name,
+        namespace,
+        body,
+        spec,
+        address,
+        internal_address,
+        relay_endpoints,
+        external_address_aliases=external_aliases,
+        internal_address_aliases=internal_aliases,
+    ):
         kubernetes.apply(resource)
     ready = kubernetes.ready_deployment_replicas(namespace, service_name)
+    address_reason = "UsingCachedAdvertisedIps" if used_cached_ips else "Resolved"
+    address_message = (
+        "Using cached advertised IPv4 addresses after DNS resolution failure"
+        if used_cached_ips
+        else "Gateway external address is resolved"
+    )
     return platform_status(
         body["metadata"].get("generation", 1),
         ready == spec.replicas,
@@ -287,13 +367,15 @@ def reconcile_gateway(body: dict[str, Any], raw_spec: dict[str, Any], kubernetes
             "resolvedAddress": address,
             "addressSource": address_source,
             "internalAddress": internal_address,
+            "advertisedIps": external_aliases,
+            "internalAdvertisedIps": internal_aliases,
             "databaseSecretRef": spec.database_secret_ref.name,
         },
         body.get("status", {}).get("conditions"),
         [
             ("ReferencesResolved", True, "Resolved", "Gateway references are resolved"),
             ("DatabaseReady", True, "Connected", "Gateway database is reachable and schema is applied"),
-            ("ExternalAddressResolved", True, "Resolved", "Gateway external address is resolved"),
+            ("ExternalAddressResolved", True, address_reason, address_message),
             ("RuntimeDataReady", True, "DatabaseBacked", "Gateway runtime data is loaded from PostgreSQL"),
             ("ConfigurationReady", True, "Rendered", "Static Kamailio configuration is rendered"),
             ("ReplicasReady", ready == spec.replicas, "Available" if ready == spec.replicas else "Reconciling", f"{ready}/{spec.replicas} Kamailio replicas are ready"),

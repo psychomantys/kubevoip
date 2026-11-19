@@ -55,6 +55,28 @@ def sdp_gateway_spec() -> SIPGatewaySpec:
     )
 
 
+def test_kamailio_renders_resolved_ipv4_aliases_while_keeping_hostname_advertise():
+    rendered = render_kamailio_config(
+        gateway_spec(),
+        "home",
+        "test",
+        "sip.example.com",
+        "sip-internal.example.com",
+        ["udp:rtpengine:2223"],
+        external_address_aliases=["198.51.100.10", "203.0.113.20"],
+        internal_address_aliases=["10.0.0.10"],
+    )
+
+    assert '#!define ADVERTISED_ADDR "sip.example.com"' in rendered
+    assert '#!define INTERNAL_ADDR "sip-internal.example.com"' in rendered
+    assert "alias=ADVERTISED_ADDR:5060" in rendered
+    assert "alias=INTERNAL_ADDR:5060" in rendered
+    assert "alias=198.51.100.10:5060" in rendered
+    assert "alias=203.0.113.20:5060" in rendered
+    assert "alias=10.0.0.10:5060" in rendered
+    assert "listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060" in rendered
+
+
 def test_kamailio_uses_database_backed_runtime_routing():
     rendered = render_kamailio_config(gateway_spec(), "home", "test", "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
 

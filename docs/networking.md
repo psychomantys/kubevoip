@@ -9,8 +9,7 @@ KubeVoIP chooses external addresses in this order:
 5. An unresolved-address condition for externally exposed components.
 
 For cluster-local `ClusterIP` components, KubeVoIP uses the managed Service DNS
-name. If RTPengine receives a hostname, it resolves the hostname inside the Pod
-before startup because SDP needs an IP address.
+name.
 
 For LoadBalancer components without an explicit address, KubeVoIP creates the
 managed Service and reports `WaitingForLoadBalancer` while its ingress is
@@ -23,6 +22,31 @@ when available. Otherwise it uses the managed Service DNS name. This lets
 trunk-facing dialogs advertise a public address while LAN phones receive an
 internal Record-Route target for in-dialog requests such as `ACK`, `BYE`, and
 re-INVITE.
+
+### Multi-A LoadBalancer hostnames
+
+When the resolved external (or internal) address is a hostname, the operator
+resolves its IPv4 `A` records during reconcile (IPv6/`AAAA` is not used yet):
+
+- Sorted unique IPs are stored on status as `advertisedIps` (and
+  `internalAdvertisedIps` on `SIPGateway`, or per-replica `advertisedIps` on
+  `MediaRelay` status relays).
+- Kamailio keeps the hostname in `advertise`, Record-Route, and Contact rewrite
+  targets, and adds `alias=<ip>:5060` for each resolved IPv4 so in-dialog
+  requests that use an NLB A-record IP still match `myself`.
+- RTPengine no longer runs `getent` at startup. The operator passes explicit
+  advertise IPs into `--interface`. One IP uses `external/$POD_IP!<ip>`; two or
+  more use equal round-robin names `external:0`, `external:1`, … so SDP `c=`
+  rotates across the current NLB front-door IPs.
+- Pod template annotations (`kubevoip.com/advertised-ips`) and the Kamailio
+  ConfigMap hash change when the IP set changes, which rolls the workloads.
+- If DNS fails after a successful resolve, reconciliation keeps the last-known
+  IP set from status (`UsingCachedAdvertisedIps`) and does not roll. A hostname
+  that has never resolved remains a dependency error.
+
+Prefer a single stable IP in `NetworkProfile` when the provider can allocate
+one. Multi-A resolution is for cloud NLB DNS names that publish several IPv4
+addresses.
 
 Kamailio receives SIP, writes registrations to PostgreSQL, selects a route from
 PostgreSQL runtime data, and asks an RTPengine replica to rewrite SDP. Direct
@@ -59,8 +83,9 @@ local L1 cache, then forces `$du`. Pod restart mid-call also recovers from
 Postgres. Sticky NLB affinity is not required.
 
 Set `enabled: false` to restore the previous Kamailio script for compatibility
-testing. No load-balancer IP aliases are rendered; destination recovery uses the
-stored Asterisk URI only.
+testing. Destination recovery uses the stored Asterisk URI only (not hardcoded
+LB IP aliases in that fix path). Separately, DNS-resolved NLB IPv4 aliases are
+still rendered for `myself` matching as described above.
 
 `CallRoute` resources belong to a `CallScope`. `DialPolicy` resources define the
 ordered scopes a caller can search. Authenticated SIP users use

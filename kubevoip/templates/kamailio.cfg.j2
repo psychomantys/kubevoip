@@ -10,6 +10,14 @@ log_stderror=yes
 debug=2
 alias=ADVERTISED_ADDR:5060
 alias=INTERNAL_ADDR:5060
+{% for alias_ip in external_address_aliases %}
+alias={{ alias_ip }}:5060
+{% endfor %}
+{% for alias_ip in internal_address_aliases %}
+{% if alias_ip not in external_address_aliases %}
+alias={{ alias_ip }}:5060
+{% endif %}
+{% endfor %}
 listen=udp:0.0.0.0:5060 advertise ADVERTISED_ADDR:5060
 loadmodule "db_postgres.so"
 loadmodule "tm.so"

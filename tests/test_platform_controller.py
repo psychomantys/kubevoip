@@ -110,7 +110,104 @@ def test_media_relay_finishes_reconciliation_after_load_balancer_addresses_resol
         "203.0.113.10",
         "203.0.113.11",
     ]
+    assert [relay["advertisedIps"] for relay in status["relays"]] == [
+        ["203.0.113.10"],
+        ["203.0.113.11"],
+    ]
     assert [resource["kind"] for resource in api.applied].count("Deployment") == 2
+
+
+def test_media_relay_resolves_hostname_to_round_robin_interfaces(monkeypatch):
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda host: ["198.51.100.10", "203.0.113.20"] if host == "rtp.example.com" else [host],
+    )
+    api = FakeKubernetes({"home-rtpengine-0": "rtp.example.com"})
+    body = {
+        "apiVersion": "kubevoip.com/v1alpha1",
+        "kind": "MediaRelay",
+        "metadata": {"name": "home", "namespace": "test", "uid": "uid"},
+    }
+    spec = {
+        "replicas": 1,
+        "networkProfileRef": {"name": "public"},
+        "media": {"start": 20000, "end": 20003},
+        "network": {"service": {"type": "LoadBalancer"}},
+    }
+
+    status = reconcile_media_relay(body, spec, api)
+    deployment = next(resource for resource in api.applied if resource["kind"] == "Deployment")
+    args = deployment["spec"]["template"]["spec"]["containers"][0]["args"][0]
+
+    assert status["relays"][0]["advertisedIps"] == ["198.51.100.10", "203.0.113.20"]
+    assert '--interface="external:0/$POD_IP!198.51.100.10"' in args
+    assert '--interface="external:1/$POD_IP!203.0.113.20"' in args
+    assert next(
+        condition for condition in status["conditions"] if condition["type"] == "ExternalAddressResolved"
+    )["reason"] == "Resolved"
+
+
+def test_media_relay_reuses_cached_advertised_ips_when_dns_fails(monkeypatch):
+    from kubevoip.dnsutil import AddressResolutionError
+
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda _host: (_ for _ in ()).throw(AddressResolutionError("boom")),
+    )
+    api = FakeKubernetes({"home-rtpengine-0": "rtp.example.com"})
+    body = {
+        "apiVersion": "kubevoip.com/v1alpha1",
+        "kind": "MediaRelay",
+        "metadata": {"name": "home", "namespace": "test", "uid": "uid"},
+        "status": {
+            "relays": [
+                {
+                    "replica": 0,
+                    "advertisedIps": ["198.51.100.10", "203.0.113.20"],
+                }
+            ]
+        },
+    }
+    spec = {
+        "replicas": 1,
+        "networkProfileRef": {"name": "public"},
+        "media": {"start": 20000, "end": 20003},
+        "network": {"service": {"type": "LoadBalancer"}},
+    }
+
+    status = reconcile_media_relay(body, spec, api)
+    assert status["relays"][0]["advertisedIps"] == ["198.51.100.10", "203.0.113.20"]
+    assert next(
+        condition for condition in status["conditions"] if condition["type"] == "ExternalAddressResolved"
+    )["reason"] == "UsingCachedAdvertisedIps"
+
+
+def test_media_relay_dns_failure_without_cache_is_dependency_error(monkeypatch):
+    from kubevoip.controller import DependencyError
+    from kubevoip.dnsutil import AddressResolutionError
+
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda _host: (_ for _ in ()).throw(AddressResolutionError("boom")),
+    )
+    api = FakeKubernetes({"home-rtpengine-0": "rtp.example.com"})
+    body = {
+        "apiVersion": "kubevoip.com/v1alpha1",
+        "kind": "MediaRelay",
+        "metadata": {"name": "home", "namespace": "test", "uid": "uid"},
+    }
+    spec = {
+        "replicas": 1,
+        "networkProfileRef": {"name": "public"},
+        "media": {"start": 20000, "end": 20003},
+        "network": {"service": {"type": "LoadBalancer"}},
+    }
+
+    with pytest.raises(DependencyError, match="failed to resolve IPv4"):
+        reconcile_media_relay(body, spec, api)
 
 
 def test_gateway_creates_load_balancer_service_before_waiting_for_ingress():
@@ -141,6 +238,11 @@ def test_gateway_creates_load_balancer_service_before_waiting_for_ingress():
 
 def test_gateway_uses_static_config_and_database_runtime_data(monkeypatch):
     monkeypatch.setattr(platform_controller, "database_ready", lambda _database: None)
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda host: ["10.96.0.10"] if "svc.cluster.local" in host else [host],
+    )
     custom = {
         (
             "test",
@@ -165,9 +267,56 @@ def test_gateway_uses_static_config_and_database_runtime_data(monkeypatch):
     config = next(resource for resource in api.applied if resource["kind"] == "ConfigMap")["data"]["kamailio.cfg"]
     runtime_condition = next(condition for condition in status["conditions"] if condition["type"] == "RuntimeDataReady")
     assert status["phase"] == "Ready"
+    assert status["advertisedIps"] == ["10.96.0.10"]
+    assert "alias=10.96.0.10:5060" in config
     assert runtime_condition["reason"] == "DatabaseBacked"
     assert "kubevoip_call_route" in config
     assert "provider.example.net" not in config
+
+
+def test_gateway_keeps_hostname_advertise_and_adds_resolved_aliases(monkeypatch):
+    monkeypatch.setattr(platform_controller, "database_ready", lambda _database: None)
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda host: ["198.51.100.10", "203.0.113.20"] if host == "sip.example.com" else [host],
+    )
+    custom = {
+        (
+            "test",
+            "mediarelays",
+            "home",
+        ): {"status": {"relays": [{"service": "home-rtpengine-0"}]}},
+    }
+    api = FakeKubernetes(
+        ingresses={"home-sip-gateway": "sip.example.com"},
+        custom=custom,
+        secrets={("test", "db"): {"host": "postgres", "port": "5432", "dbname": "kubevoip", "user": "app", "password": "secret"}},
+    )
+    body = {
+        "apiVersion": "kubevoip.com/v1alpha1",
+        "kind": "SIPGateway",
+        "metadata": {"name": "home", "namespace": "test", "uid": "uid"},
+    }
+    spec = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "public"},
+        "mediaRelayRef": {"name": "home"},
+        "service": {"type": "LoadBalancer"},
+    }
+
+    status = reconcile_gateway(body, spec, api)
+    config = next(resource for resource in api.applied if resource["kind"] == "ConfigMap")["data"]["kamailio.cfg"]
+    deployment = next(resource for resource in api.applied if resource["kind"] == "Deployment")
+
+    assert status["resolvedAddress"] == "sip.example.com"
+    assert status["advertisedIps"] == ["198.51.100.10", "203.0.113.20"]
+    assert '#!define ADVERTISED_ADDR "sip.example.com"' in config
+    assert "alias=198.51.100.10:5060" in config
+    assert "alias=203.0.113.20:5060" in config
+    assert deployment["spec"]["template"]["metadata"]["annotations"]["kubevoip.com/advertised-ips"] == (
+        "198.51.100.10,203.0.113.20"
+    )
 
 
 def test_sip_trunk_and_call_route_statuses_validate_references(monkeypatch):
