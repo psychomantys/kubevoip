@@ -43,18 +43,57 @@ def test_media_relay_builds_stable_service_per_replica():
             "media": {"start": 20000, "end": 20003},
         }
     )
-    resources = build_media_relay_resources("home", "test", OWNER, spec, ["one.example", "two.example"])
+    resources = build_media_relay_resources(
+        "home",
+        "test",
+        OWNER,
+        spec,
+        ["one.example", "two.example"],
+        [["198.51.100.10"], ["203.0.113.20"]],
+    )
     services = [item for item in resources if item["kind"] == "Service"]
     deployments = [item for item in resources if item["kind"] == "Deployment"]
     assert [item["metadata"]["name"] for item in services] == ["home-rtpengine-0", "home-rtpengine-1"]
     assert [port["port"] for port in services[0]["spec"]["ports"]] == [2223, 20000, 20001]
-    assert "--table=-1" in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert "--log-stderr" in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert "--log-level=6" in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert "--split-logs" in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert '--interface="internal/$POD_IP"' in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert '--interface="external/$POD_IP!$advertised"' in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
-    assert "kubevoip_rtp_event" in deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    args0 = deployments[0]["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    assert "--table=-1" in args0
+    assert "--log-stderr" in args0
+    assert "--log-level=6" in args0
+    assert "--split-logs" in args0
+    assert '--interface="internal/$POD_IP"' in args0
+    assert '--interface="external/$POD_IP!198.51.100.10"' in args0
+    assert "getent" not in args0
+    assert "advertised_ips=198.51.100.10" in args0
+    assert "kubevoip_rtp_event" in args0
+    assert deployments[0]["spec"]["template"]["metadata"]["annotations"]["kubevoip.com/advertised-ips"] == "198.51.100.10"
+
+
+def test_media_relay_uses_round_robin_interfaces_for_multiple_advertised_ips():
+    spec = MediaRelaySpec.model_validate(
+        {
+            "replicas": 1,
+            "networkProfileRef": {"name": "public"},
+            "media": {"start": 20000, "end": 20003},
+        }
+    )
+    resources = build_media_relay_resources(
+        "home",
+        "test",
+        OWNER,
+        spec,
+        ["rtp.example.com"],
+        [["198.51.100.10", "203.0.113.20", "203.0.113.30"]],
+    )
+    deployment = [item for item in resources if item["kind"] == "Deployment"][0]
+    args = deployment["spec"]["template"]["spec"]["containers"][0]["args"][0]
+    assert '--interface="external:0/$POD_IP!198.51.100.10"' in args
+    assert '--interface="external:1/$POD_IP!203.0.113.20"' in args
+    assert '--interface="external:2/$POD_IP!203.0.113.30"' in args
+    assert '--interface="external/$POD_IP!' not in args
+    assert (
+        deployment["spec"]["template"]["metadata"]["annotations"]["kubevoip.com/advertised-ips"]
+        == "198.51.100.10,203.0.113.20,203.0.113.30"
+    )
 
 
 def test_media_relay_prefers_spreading_replicas_across_nodes():
@@ -65,7 +104,14 @@ def test_media_relay_prefers_spreading_replicas_across_nodes():
             "media": {"start": 20000, "end": 20003},
         }
     )
-    resources = build_media_relay_resources("home", "test", OWNER, spec, ["one.example", "two.example"])
+    resources = build_media_relay_resources(
+        "home",
+        "test",
+        OWNER,
+        spec,
+        ["one.example", "two.example"],
+        [["198.51.100.10"], ["203.0.113.20"]],
+    )
     deployments = [item for item in resources if item["kind"] == "Deployment"]
     terms = [
         item["spec"]["template"]["spec"]["affinity"]["podAntiAffinity"]["preferredDuringSchedulingIgnoredDuringExecution"][0]
@@ -149,11 +195,27 @@ def test_gateway_resources_do_not_mount_trunk_secrets():
             "mediaRelayRef": {"name": "home"},
         }
     )
-    resources = build_gateway_resources("home", "test", owner, spec, "198.51.100.10", "10.0.0.10", ["udp:rtpengine:2223"])
+    resources = build_gateway_resources(
+        "home",
+        "test",
+        owner,
+        spec,
+        "sip.example.com",
+        "sip.example.com",
+        ["udp:rtpengine:2223"],
+        external_address_aliases=["198.51.100.10", "203.0.113.20"],
+        internal_address_aliases=["198.51.100.10", "203.0.113.20"],
+    )
 
     config = next(item for item in resources if item["kind"] == "ConfigMap")["data"]["kamailio.cfg"]
     deployment = next(item for item in resources if item["kind"] == "Deployment")
     container = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert '#!define ADVERTISED_ADDR "sip.example.com"' in config
+    assert "alias=198.51.100.10:5060" in config
+    assert "alias=203.0.113.20:5060" in config
+    assert deployment["spec"]["template"]["metadata"]["annotations"]["kubevoip.com/advertised-ips"] == (
+        "198.51.100.10,203.0.113.20"
+    )
     assert "provider-auth" not in config
     assert "caller-id" not in config
     assert "env" not in container

@@ -13,6 +13,12 @@ All notable changes to KubeVoIP are documented in this file.
   (`kubevoip_asterisk_callee`) with a per-pod `htable` L1 cache for
   multi-replica safety. Set `enabled: false` to keep the previous Kamailio
   script.
+- Operator IPv4 `A`-record resolution for hostname external addresses: status
+  `advertisedIps` (and gateway `internalAdvertisedIps`), Kamailio
+  `alias=<ip>:<port>` entries for each configured SIP port while keeping
+  hostname advertise/Record-Route/Contact, RTPengine equal round-robin
+  advertise interfaces (`external:N`), roll on IP-set change, and last-known
+  IP cache when DNS fails after a prior success.
 
 ## [0.6.9] - 2026-11-05
 

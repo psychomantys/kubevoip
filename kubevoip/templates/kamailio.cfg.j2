@@ -11,6 +11,14 @@ debug=2
 {% for port in ports %}
 alias=ADVERTISED_ADDR:{{ port }}
 alias=INTERNAL_ADDR:{{ port }}
+{% for alias_ip in external_address_aliases %}
+alias={{ alias_ip }}:{{ port }}
+{% endfor %}
+{% for alias_ip in internal_address_aliases %}
+{% if alias_ip not in external_address_aliases %}
+alias={{ alias_ip }}:{{ port }}
+{% endif %}
+{% endfor %}
 {% endfor %}
 {% for port in ports %}
 {% for transport in transports %}

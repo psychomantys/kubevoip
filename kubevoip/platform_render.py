@@ -83,10 +83,14 @@ def render_kamailio_config(
     external_address: str,
     internal_address: str,
     relay_endpoints: list[str],
+    external_address_aliases: list[str] | None = None,
+    internal_address_aliases: list[str] | None = None,
 ) -> str:
     relay_sockets = " ".join(relay_endpoints)
     external_record_route = kamailio_string(external_address)
     internal_record_route = kamailio_string(internal_address)
+    external_aliases = list(external_address_aliases or [])
+    internal_aliases = list(internal_address_aliases or [])
     capture = spec.observability.capture
     capture_mode = {"transaction": "t", "dialog": "d"}[capture.capture_mode]
     if internal_address == external_address:
@@ -198,6 +202,8 @@ def render_kamailio_config(
         "kamailio.cfg.j2",
         external_address=external_address,
         internal_address=internal_address,
+        external_address_aliases=external_aliases,
+        internal_address_aliases=internal_aliases,
         auth_realm=gateway_name,
         transports=spec.transports,
         ports=spec.ports,

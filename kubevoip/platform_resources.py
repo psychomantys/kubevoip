@@ -106,33 +106,45 @@ def build_media_relay_services(
     return services
 
 
+def _rtpengine_external_interfaces(advertised_ips: list[str]) -> str:
+    if len(advertised_ips) == 1:
+        return f'--interface="external/$POD_IP!{advertised_ips[0]}"'
+    return " ".join(
+        f'--interface="external:{index}/$POD_IP!{ip}"' for index, ip in enumerate(advertised_ips)
+    )
+
+
 def build_media_relay_resources(
     name: str,
     namespace: str,
     owner: dict[str, Any],
     spec: MediaRelaySpec,
     addresses: list[str],
+    advertised_ip_sets: list[list[str]],
 ) -> list[dict[str, Any]]:
     resources: list[dict[str, Any]] = []
     services = build_media_relay_services(name, namespace, owner, spec)
-    for index, ((start, end), address, service) in enumerate(
+    for index, ((start, end), address, advertised_ips, service) in enumerate(
         zip(
             partition_range(spec.media.start, spec.media.end, spec.replicas),
             addresses,
+            advertised_ip_sets,
             services,
             strict=True,
         )
     ):
+        if not advertised_ips:
+            raise ValueError(f"RTPengine replica {index} requires at least one advertised IPv4 address")
         instance = f"{name}-{index}"
         labels = component_labels("rtpengine", instance)
         common = {"namespace": namespace, "instance": name, "owner": owner}
         service_name = f"{name}-rtpengine-{index}"
-        command = f"""advertised="$(getent ahostsv4 "$EXTERNAL_ADDRESS" | awk 'NR == 1 {{ print $1 }}')"
-test -n "$advertised"
-echo "kubevoip_rtp_event component=rtpengine service={service_name} advertised=$advertised pod_ip=$POD_IP port_min={start} port_max={end}"
+        advertised_csv = ",".join(advertised_ips)
+        external_interfaces = _rtpengine_external_interfaces(advertised_ips)
+        command = f"""echo "kubevoip_rtp_event component=rtpengine service={service_name} advertised_ips={advertised_csv} pod_ip=$POD_IP port_min={start} port_max={end}"
 exec rtpengine --foreground --log-stderr --table=-1 \
   --log-level=6 --split-logs \
-  --interface="internal/$POD_IP" --interface="external/$POD_IP!$advertised" --listen-ng=0.0.0.0:2223 \
+  --interface="internal/$POD_IP" {external_interfaces} --listen-ng=0.0.0.0:2223 \
   --port-min={start} --port-max={end}
 """
         deployment = {
@@ -143,7 +155,13 @@ exec rtpengine --foreground --log-stderr --table=-1 \
                 "replicas": 1,
                 "selector": {"matchLabels": labels},
                 "template": {
-                    "metadata": {"labels": labels, "annotations": {"kubevoip.com/external-address": address}},
+                    "metadata": {
+                        "labels": labels,
+                        "annotations": {
+                            "kubevoip.com/external-address": address,
+                            "kubevoip.com/advertised-ips": advertised_csv,
+                        },
+                    },
                     "spec": {
                         "affinity": preferred_component_anti_affinity("rtpengine"),
                         "hostNetwork": spec.network.mode == "HostNetwork",
@@ -292,15 +310,29 @@ def build_gateway_resources(
     external_address: str,
     internal_address: str,
     relay_endpoints: list[str],
+    external_address_aliases: list[str] | None = None,
+    internal_address_aliases: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     base = f"{name}-sip-gateway"
     labels = component_labels("kamailio", name)
     common = {"namespace": namespace, "instance": name, "owner": owner}
-    config = render_kamailio_config(spec, name, namespace, external_address, internal_address, relay_endpoints)
+    external_aliases = list(external_address_aliases or [])
+    internal_aliases = list(internal_address_aliases or [])
+    config = render_kamailio_config(
+        spec,
+        name,
+        namespace,
+        external_address,
+        internal_address,
+        relay_endpoints,
+        external_address_aliases=external_aliases,
+        internal_address_aliases=internal_aliases,
+    )
     checksum = stable_hash({"kamailio.cfg": config})
     configmap = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": metadata(f"{base}-config", **common), "data": {"kamailio.cfg": config}}
     service = build_gateway_service(name, namespace, owner, spec)
     env = [{"secretRef": {"name": spec.database_secret_ref.name}}]
+    advertised_csv = ",".join(external_aliases)
     deployment = {
         "apiVersion": "apps/v1",
         "kind": "Deployment",
@@ -309,7 +341,13 @@ def build_gateway_resources(
             "replicas": spec.replicas,
             "selector": {"matchLabels": labels},
             "template": {
-                "metadata": {"labels": labels, "annotations": {"kubevoip.com/config-hash": checksum}},
+                "metadata": {
+                    "labels": labels,
+                    "annotations": {
+                        "kubevoip.com/config-hash": checksum,
+                        "kubevoip.com/advertised-ips": advertised_csv,
+                    },
+                },
                 "spec": {
                     "containers": [
                         {
