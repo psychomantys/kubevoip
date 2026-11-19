@@ -148,9 +148,9 @@ request_route {
 {% if aggressive_sbc_private_contact %}
       if (isflagset(1)) {
         route(FIX_CALLEE_DEST);
-      } else if (uri == myself) {
+      } else {
         route(LOAD_CALLEE_DEST);
-        if ($avp(callee_du) != $null && $avp(callee_du) != "") {
+        if (uri == myself && $avp(callee_du) != $null && $avp(callee_du) != "") {
           $du = $avp(callee_du);
           xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_self_ruri_fixed call_id=$ci method=$rm du=$du source=$si\n");
         }
@@ -504,10 +504,15 @@ route[GUARD_INDIALOG_DEST] {
   if ($var(dest_restricted) != 1) {
     return;
   }
-  if ($avp(callee_du) != $null && $avp(callee_du) != "" && $du == $avp(callee_du)) {
+  # Dialog is already validated. A private/cluster Request-URI (for example the
+  # Asterisk pod Contact) is allowed only by forcing the stored destination for
+  # this Call-ID — never by trusting $rd / $du from the request alone.
+  if ($avp(callee_du) != $null && $avp(callee_du) != "") {
+    $du = $avp(callee_du);
     return;
   }
-  if ($avp(dlg_downstream) != $null && $avp(dlg_downstream) != "" && $du == $avp(dlg_downstream)) {
+  if ($avp(dlg_downstream) != $null && $avp(dlg_downstream) != "") {
+    $du = $avp(dlg_downstream);
     return;
   }
   xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_dest_forbidden method=$rm call_id=$ci source=$si du=$du rd=$rd\n");
@@ -522,6 +527,58 @@ route[PURGE_EXPIRED_ROWS] {
   sql_result_free("dialog_purge");
   sql_query("kubevoip", "{{ callee_purge_query }}", "callee_purge");
   sql_result_free("callee_purge");
+}
+
+{% endif %}
+{% if aggressive_sbc_private_contact or in_dialog_validation %}
+# Re-bind stored Asterisk destination from the answering pod on final 2xx.
+# INVITE often stores a Service DNS target; multi-replica Asterisk needs the
+# pod that actually answered so ACK/BYE GUARD can force $du to that host.
+route[BIND_ASTERISK_REPLY_DEST] {
+  if ($dlg_var(media_target) != "asterisk") {
+    return;
+  }
+  $var(bind_host) = "";
+  $var(bind_port) = "5060";
+  $var(ct_host) = $(ct.fields.uri{uri.host});
+  $var(ct_port) = $(ct.fields.uri{uri.port});
+  # Prefer a private IP in Contact (answering pod), then reply source $si,
+  # then a cluster-local Contact host as last resort.
+  if ($var(ct_host) != $null && $var(ct_host) != "" && $var(ct_host) =~ "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|127\\.|169\\.254\\.)") {
+    $var(bind_host) = $var(ct_host);
+    if ($var(ct_port) != $null && $var(ct_port) != "" && $var(ct_port) != "0") {
+      $var(bind_port) = $var(ct_port);
+    }
+  } else if ($si =~ "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|127\\.|169\\.254\\.)") {
+    $var(bind_host) = $si;
+    if ($sp != $null && $sp != "" && $sp != "0") {
+      $var(bind_port) = $sp;
+    }
+  } else if ($var(ct_host) != $null && $var(ct_host) != "" && $var(ct_host) =~ "\\.cluster\\.local$") {
+    $var(bind_host) = $var(ct_host);
+    if ($var(ct_port) != $null && $var(ct_port) != "" && $var(ct_port) != "0") {
+      $var(bind_port) = $var(ct_port);
+    }
+  } else {
+    return;
+  }
+  $var(bind_du) = "sip:" + $var(bind_host) + ":" + $var(bind_port);
+{% if aggressive_sbc_private_contact %}
+  $sht(calleedu=>$ci) = $var(bind_du);
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(du_esc) = $(var(bind_du){s.replace,',''});
+  $var(callee_update_query) = "{{ callee_update_dest_prefix }}" + $var(du_esc) + "{{ callee_update_dest_middle }}" + $var(ci_esc) + "{{ callee_update_dest_suffix }}";
+  sql_query("kubevoip", "$var(callee_update_query)", "callee_update");
+  sql_result_free("callee_update");
+{% endif %}
+{% if in_dialog_validation %}
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(du_esc) = $(var(bind_du){s.replace,',''});
+  $var(dialog_update_du_query) = "{{ dialog_update_downstream_prefix }}" + $var(du_esc) + "{{ dialog_update_downstream_middle }}" + $var(ci_esc) + "{{ dialog_update_downstream_suffix }}";
+  sql_query("kubevoip", "$var(dialog_update_du_query)", "dialog_update_du");
+  sql_result_free("dialog_update_du");
+{% endif %}
+  xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=asterisk_dest_bound call_id=$ci du=$var(bind_du) status=$rs source=$si\n");
 }
 
 {% endif %}
@@ -728,6 +785,12 @@ onreply_route[MANAGE_REPLY] {
 {% if in_dialog_validation %}
   if ($tt != $null && $tt != "") {
     route(UPDATE_DIALOG_TO_TAG);
+  }
+{% endif %}
+{% if aggressive_sbc_private_contact or in_dialog_validation %}
+  # Bind before trunk Contact rewrite so we still see the Asterisk pod Contact.
+  if (status =~ "2[0-9][0-9]") {
+    route(BIND_ASTERISK_REPLY_DEST);
   }
 {% endif %}
 {% if aggressive_sbc_private_contact %}

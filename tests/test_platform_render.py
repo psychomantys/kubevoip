@@ -89,7 +89,7 @@ def test_kamailio_uses_database_backed_runtime_routing():
     assert "kubevoip_sip_trunk" in rendered
     assert "kubevoip_voicemail_mailbox" in rendered
     assert "proxy_authorize" in rendered
-    assert "lookup(\"location\")" in rendered
+    assert 'lookup("location")' in rendered
     assert 'uac_auth_mode("1")' in rendered
     assert "rtpengine_offer" in rendered
     assert "provider.example.net" not in rendered
@@ -99,7 +99,7 @@ def test_kamailio_uses_database_backed_runtime_routing():
     assert '" + $aU + "' in rendered
     assert '" + $avp(caller_policy) + "' in rendered
     assert '" + $rU + "' in rendered
-    assert "sql_query(\"kubevoip\", \"$var(caller_query)\", \"caller\")" in rendered
+    assert 'sql_query("kubevoip", "$var(caller_query)", "caller")' in rendered
     assert "namespace='test'" in rendered
     assert "gateway_name='home'" in rendered
     assert "namespace='KUBEVOIP_NAMESPACE'" not in rendered
@@ -392,6 +392,9 @@ def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
     assert "kubevoip_asterisk_callee" in rendered
     assert "route(LOAD_CALLEE_DEST);" in rendered
     assert "route(STORE_CALLEE_DEST);" in rendered
+    assert "route[BIND_ASTERISK_REPLY_DEST]" in rendered
+    assert "stage=asterisk_dest_bound" in rendered
+    assert "update kubevoip_asterisk_callee set destination=" in rendered
     assert "$(ci{s.replace,',''})" in rendered
     assert "$(du{s.replace,',''})" in rendered
     assert "+ $var(du_esc) +" in rendered
@@ -409,6 +412,10 @@ def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
     sht_idx = rendered.index("$sht(calleedu=>$ci) != $null", load_idx)
     sql_idx = rendered.index("kubevoip_asterisk_callee", load_idx)
     assert sht_idx < sql_idx
+    manage_reply = rendered[rendered.index("onreply_route[MANAGE_REPLY]") :]
+    bind_call_idx = manage_reply.index("route(BIND_ASTERISK_REPLY_DEST);")
+    rewrite_idx = manage_reply.index("stage=contact_rewritten")
+    assert bind_call_idx < rewrite_idx
     # No hardcoded LB / public hostname IP aliases in the rendered script.
     assert "alias=18." not in rendered
     assert "voip.weni.ai" not in rendered
@@ -429,8 +436,10 @@ def test_kamailio_aggressive_sbc_private_contact_fix_can_be_disabled():
     assert 'loadmodule "htable.so"' not in rendered
     assert "route[FIX_CALLEE_DEST]" not in rendered
     assert "route[LOAD_CALLEE_DEST]" not in rendered
+    assert "route[BIND_ASTERISK_REPLY_DEST]" not in rendered
     assert "stage=ack_force_callee" not in rendered
     assert "stage=contact_rewritten" not in rendered
+    assert "stage=asterisk_dest_bound" not in rendered
     assert "stage=indialog_self_ruri_fixed" not in rendered
     assert "sbc_trunk" not in rendered
     assert "kubevoip_asterisk_callee" not in rendered
@@ -455,6 +464,58 @@ def test_kamailio_aggressive_sbc_private_contact_keeps_private_ruri():
     assert "insert into kubevoip_asterisk_callee" in rendered
     assert "select destination from kubevoip_asterisk_callee" in rendered
     assert "delete from kubevoip_asterisk_callee" in rendered
+    assert "update kubevoip_asterisk_callee set destination=" in rendered
+
+
+def test_kamailio_bind_asterisk_reply_dest_updates_stores_before_contact_rewrite():
+    rendered = render_kamailio_config(
+        gateway_spec(),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert "route[BIND_ASTERISK_REPLY_DEST]" in rendered
+    assert '$dlg_var(media_target) != "asterisk"' in rendered
+    assert "$(ct.fields.uri{uri.host})" in rendered
+    assert "stage=asterisk_dest_bound" in rendered
+    assert "update kubevoip_asterisk_callee set destination=" in rendered
+    assert "update kubevoip_dialog set downstream_uri=" in rendered
+    manage_reply = rendered[rendered.index("onreply_route[MANAGE_REPLY]") :]
+    assert manage_reply.index("route(BIND_ASTERISK_REPLY_DEST);") < manage_reply.index("stage=contact_rewritten")
+
+
+def test_kamailio_bind_asterisk_reply_dest_with_only_aggressive_sbc():
+    rendered = render_kamailio_config(
+        _gateway_with_fixes(aggressive_sbc=True, in_dialog_validation=False),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert "route[BIND_ASTERISK_REPLY_DEST]" in rendered
+    assert "update kubevoip_asterisk_callee set destination=" in rendered
+    assert "update kubevoip_dialog set downstream_uri=" not in rendered
+
+
+def test_kamailio_bind_asterisk_reply_dest_with_only_in_dialog_validation():
+    rendered = render_kamailio_config(
+        _gateway_with_fixes(aggressive_sbc=False, in_dialog_validation=True),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert "route[BIND_ASTERISK_REPLY_DEST]" in rendered
+    assert "update kubevoip_dialog set downstream_uri=" in rendered
+    assert "update kubevoip_asterisk_callee set destination=" not in rendered
+    assert "calleedu" not in rendered
 
 
 def test_kamailio_in_dialog_validation_enabled_by_default():
@@ -489,11 +550,17 @@ def test_kamailio_in_dialog_validation_enabled_by_default():
     assert "stage=cancel_rejected" in rendered
     assert "stage=indialog_dest_forbidden" in rendered
     assert "stage=dialog_stored" in rendered
+    assert "stage=asterisk_dest_bound" in rendered
     assert "kubevoip_dialog" in rendered
+    assert "update kubevoip_dialog set downstream_uri=" in rendered
     assert 'ip_is_in_subnet("$si", "10.0.0.0/8")' in rendered
     assert "delete from kubevoip_dialog where expires_at < now()" in rendered
     assert "delete from kubevoip_asterisk_callee where expires_at < now()" in rendered
     assert 'send_reply("481", "Call/Transaction Does Not Exist");' in rendered
+    guard = rendered[rendered.index("route[GUARD_INDIALOG_DEST]") : rendered.index("route[PURGE_EXPIRED_ROWS]")]
+    assert "$du = $avp(callee_du);" in guard
+    assert "$du = $avp(dlg_downstream);" in guard
+    assert "$du == $avp(callee_du)" not in guard
 
 
 def test_kamailio_in_dialog_validation_can_be_disabled():
