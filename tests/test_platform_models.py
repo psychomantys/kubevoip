@@ -249,6 +249,7 @@ def test_gateway_aggressive_sbc_private_contact_fix_defaults_enabled():
         }
     )
     assert spec.fix.aggressive_sbc_private_contact.enabled is True
+    assert spec.fix.in_dialog_validation.enabled is True
 
 
 def test_gateway_aggressive_sbc_private_contact_fix_can_disable():
@@ -261,6 +262,19 @@ def test_gateway_aggressive_sbc_private_contact_fix_can_disable():
         }
     )
     assert spec.fix.aggressive_sbc_private_contact.enabled is False
+
+
+def test_gateway_in_dialog_validation_fix_can_disable():
+    spec = SIPGatewaySpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "networkProfileRef": {"name": "public"},
+            "mediaRelayRef": {"name": "home"},
+            "fix": {"inDialogValidation": {"enabled": False}},
+        }
+    )
+    assert spec.fix.in_dialog_validation.enabled is False
+    assert spec.fix.aggressive_sbc_private_contact.enabled is True
 
 
 def test_asterisk_pool_voicemail_requires_database_ref():

@@ -70,12 +70,14 @@ def render_kamailio_config(
     relay_endpoints: list[str],
     external_address_aliases: list[str] | None = None,
     internal_address_aliases: list[str] | None = None,
+    local_networks: list[str] | None = None,
 ) -> str:
     relay_sockets = " ".join(relay_endpoints)
     external_record_route = kamailio_string(external_address)
     internal_record_route = kamailio_string(internal_address)
     external_aliases = list(external_address_aliases or [])
     internal_aliases = list(internal_address_aliases or [])
+    networks = list(local_networks or [])
     capture = spec.observability.capture
     capture_mode = {"transaction": "t", "dialog": "d"}[capture.capture_mode]
     if internal_address == external_address:
@@ -175,12 +177,49 @@ def render_kamailio_config(
         "and call_id='"
     )
     callee_delete_query_suffix = "'"
+    dialog_store_query_prefix = (
+        "insert into kubevoip_dialog "
+        "(namespace, gateway_name, call_id, from_tag, to_tag, downstream_uri, expires_at) "
+        f"values ('{sql_namespace}', '{sql_gateway}', '"
+    )
+    dialog_store_query_middle_call_id = "', '"
+    dialog_store_query_middle_from_tag = "', null, '"
+    dialog_store_query_suffix = (
+        "', now() + interval '2 hours') "
+        "on conflict (namespace, gateway_name, call_id) do update set "
+        "from_tag = excluded.from_tag, downstream_uri = excluded.downstream_uri, "
+        "expires_at = excluded.expires_at"
+    )
+    dialog_lookup_query_prefix = (
+        "select from_tag, coalesce(to_tag,''), downstream_uri from kubevoip_dialog "
+        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
+        "and call_id='"
+    )
+    dialog_lookup_query_suffix = "' and expires_at > now() limit 1"
+    dialog_update_to_tag_prefix = (
+        "update kubevoip_dialog set to_tag='"
+    )
+    dialog_update_to_tag_middle = (
+        f"', expires_at = now() + interval '2 hours' "
+        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
+        "and call_id='"
+    )
+    dialog_update_to_tag_suffix = "' and (to_tag is null or to_tag='')"
+    dialog_delete_query_prefix = (
+        "delete from kubevoip_dialog "
+        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
+        "and call_id='"
+    )
+    dialog_delete_query_suffix = "'"
+    dialog_purge_query = "delete from kubevoip_dialog where expires_at < now()"
+    callee_purge_query = "delete from kubevoip_asterisk_callee where expires_at < now()"
     return render_template(
         "kamailio.cfg.j2",
         external_address=external_address,
         internal_address=internal_address,
         external_address_aliases=external_aliases,
         internal_address_aliases=internal_aliases,
+        local_networks=networks,
         auth_realm=gateway_name,
         relay_sockets=relay_sockets,
         namespace=kamailio_string(namespace),
@@ -189,6 +228,7 @@ def render_kamailio_config(
         sip_headers=spec.observability.sip_headers,
         sdp=spec.observability.sdp,
         aggressive_sbc_private_contact=spec.fix.aggressive_sbc_private_contact.enabled,
+        in_dialog_validation=spec.fix.in_dialog_validation.enabled,
         capture_mode=capture_mode,
         hep_destination=f"sip:{kamailio_define(capture.hep_address)}:{capture.hep_port}",
         record_route_line=record_route_line,
@@ -213,4 +253,17 @@ def render_kamailio_config(
         callee_lookup_query_suffix=callee_lookup_query_suffix,
         callee_delete_query_prefix=callee_delete_query_prefix,
         callee_delete_query_suffix=callee_delete_query_suffix,
+        dialog_store_query_prefix=dialog_store_query_prefix,
+        dialog_store_query_middle_call_id=dialog_store_query_middle_call_id,
+        dialog_store_query_middle_from_tag=dialog_store_query_middle_from_tag,
+        dialog_store_query_suffix=dialog_store_query_suffix,
+        dialog_lookup_query_prefix=dialog_lookup_query_prefix,
+        dialog_lookup_query_suffix=dialog_lookup_query_suffix,
+        dialog_update_to_tag_prefix=dialog_update_to_tag_prefix,
+        dialog_update_to_tag_middle=dialog_update_to_tag_middle,
+        dialog_update_to_tag_suffix=dialog_update_to_tag_suffix,
+        dialog_delete_query_prefix=dialog_delete_query_prefix,
+        dialog_delete_query_suffix=dialog_delete_query_suffix,
+        dialog_purge_query=dialog_purge_query,
+        callee_purge_query=callee_purge_query,
     )

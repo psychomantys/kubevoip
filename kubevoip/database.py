@@ -210,6 +210,18 @@ class AsteriskCallee(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class Dialog(Base):
+    __tablename__ = "kubevoip_dialog"
+
+    namespace: Mapped[str] = mapped_column(String(63), primary_key=True)
+    gateway_name: Mapped[str] = mapped_column(String(63), primary_key=True)
+    call_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    from_tag: Mapped[str] = mapped_column(String(128), nullable=False)
+    to_tag: Mapped[str | None] = mapped_column(String(128))
+    downstream_uri: Mapped[str] = mapped_column(String(255), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class AsteriskVoicemailUser(Base):
     __tablename__ = "voicemail"
 

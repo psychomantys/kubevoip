@@ -841,6 +841,12 @@ spec:
                       enabled:
                         type: boolean
                         default: true
+                  inDialogValidation:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                        default: true
             required:
             - databaseSecretRef
             - networkProfileRef

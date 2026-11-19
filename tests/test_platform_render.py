@@ -242,15 +242,26 @@ def test_kamailio_can_log_sip_headers_to_stdout():
     assert "$(msg(hdrs){s.replace,$var(cr),\\\\r}{s.replace,$var(lf),\\\\n})" in rendered
 
 
-def _gateway_with_aggressive_sbc(*, enabled: bool) -> SIPGatewaySpec:
+def _gateway_with_fixes(
+    *,
+    aggressive_sbc: bool = True,
+    in_dialog_validation: bool = True,
+) -> SIPGatewaySpec:
     return SIPGatewaySpec.model_validate(
         {
             "databaseSecretRef": {"name": "db"},
             "networkProfileRef": {"name": "public"},
             "mediaRelayRef": {"name": "home"},
-            "fix": {"aggressiveSbcPrivateContact": {"enabled": enabled}},
+            "fix": {
+                "aggressiveSbcPrivateContact": {"enabled": aggressive_sbc},
+                "inDialogValidation": {"enabled": in_dialog_validation},
+            },
         }
     )
+
+
+def _gateway_with_aggressive_sbc(*, enabled: bool) -> SIPGatewaySpec:
+    return _gateway_with_fixes(aggressive_sbc=enabled, in_dialog_validation=True)
 
 
 def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
@@ -267,6 +278,10 @@ def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
     assert "stage=asterisk_callee_stored" in rendered
     assert "stage=contact_rewritten" in rendered
     assert 'append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5060>\\r\\n");' in rendered
+    assert '$dlg_var(sbc_trunk) = "1";' in rendered
+    assert '$dlg_var(sbc_trunk) == "1"' in rendered
+    assert "stage=indialog_self_ruri_fixed" in rendered
+    assert "uri == myself" in rendered
     assert "$sht(calleedu=>$ci) = $du;" in rendered
     assert "kubevoip_asterisk_callee" in rendered
     assert "route(LOAD_CALLEE_DEST);" in rendered
@@ -277,6 +292,13 @@ def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
     assert "if (isflagset(1))" in rendered
     assert "if (!isflagset(1))" in rendered
     assert "$dlg_var(callee_du)" not in rendered
+    store_idx = rendered.index("route(STORE_CALLEE_DEST);")
+    trunk_flag_idx = rendered.index('$dlg_var(sbc_trunk) = "1";', store_idx)
+    assert trunk_flag_idx > store_idx
+    loose_idx = rendered.index("if (loose_route())")
+    self_ruri_idx = rendered.index("stage=indialog_self_ruri_fixed")
+    relay_idx = rendered.index("route(RELAY);", self_ruri_idx)
+    assert loose_idx < self_ruri_idx < relay_idx
     load_idx = rendered.index("route[LOAD_CALLEE_DEST]")
     sht_idx = rendered.index("$sht(calleedu=>$ci) != $null", load_idx)
     sql_idx = rendered.index("kubevoip_asterisk_callee", load_idx)
@@ -290,7 +312,7 @@ def test_kamailio_aggressive_sbc_private_contact_fix_enabled_by_default():
 
 def test_kamailio_aggressive_sbc_private_contact_fix_can_be_disabled():
     rendered = render_kamailio_config(
-        _gateway_with_aggressive_sbc(enabled=False),
+        _gateway_with_fixes(aggressive_sbc=False, in_dialog_validation=False),
         "home",
         "test",
         "198.51.100.10",
@@ -303,10 +325,13 @@ def test_kamailio_aggressive_sbc_private_contact_fix_can_be_disabled():
     assert "route[LOAD_CALLEE_DEST]" not in rendered
     assert "stage=ack_force_callee" not in rendered
     assert "stage=contact_rewritten" not in rendered
+    assert "stage=indialog_self_ruri_fixed" not in rendered
+    assert "sbc_trunk" not in rendered
     assert "kubevoip_asterisk_callee" not in rendered
     assert "calleedu" not in rendered
-    assert "if (loose_route()) { route(RELAY); exit; }" in rendered
-    assert "if (is_method(\"ACK\")) { exit; }" in rendered
+    assert 'if (is_method("BYE|CANCEL"))' in rendered
+    assert "if (loose_route())" in rendered
+    assert "route(RELAY);" in rendered
 
 
 def test_kamailio_aggressive_sbc_private_contact_keeps_private_ruri():
@@ -324,6 +349,68 @@ def test_kamailio_aggressive_sbc_private_contact_keeps_private_ruri():
     assert "insert into kubevoip_asterisk_callee" in rendered
     assert "select destination from kubevoip_asterisk_callee" in rendered
     assert "delete from kubevoip_asterisk_callee" in rendered
+
+
+def test_kamailio_in_dialog_validation_enabled_by_default():
+    rendered = render_kamailio_config(
+        gateway_spec(),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+        local_networks=["10.0.0.0/8"],
+    )
+
+    assert 'loadmodule "ipops.so"' in rendered
+    assert 'loadmodule "rtimer.so"' in rendered
+    assert "route[GUARD_INDIALOG_DEST]" in rendered
+    assert "route[LOAD_DIALOG]" in rendered
+    assert "route[STORE_DIALOG]" in rendered
+    assert "route[CLEAR_DIALOG]" in rendered
+    assert "route[PURGE_EXPIRED_ROWS]" in rendered
+    assert "is_known_dlg()" in rendered
+    assert 'if (is_method("CANCEL"))' in rendered
+    assert "t_check_trans()" in rendered
+    cancel_idx = rendered.index('if (is_method("CANCEL"))')
+    known_idx = rendered.index("is_known_dlg()")
+    delete_idx = rendered.index("stage=rtpengine_delete", known_idx)
+    guard_idx = rendered.index("route(GUARD_INDIALOG_DEST);")
+    relay_idx = rendered.index("route(RELAY);", guard_idx)
+    assert cancel_idx < known_idx < delete_idx
+    assert guard_idx < relay_idx
+    assert "stage=indialog_rejected" in rendered
+    assert "stage=cancel_rejected" in rendered
+    assert "stage=indialog_dest_forbidden" in rendered
+    assert "stage=dialog_stored" in rendered
+    assert "kubevoip_dialog" in rendered
+    assert 'ip_is_in_subnet("$si", "10.0.0.0/8")' in rendered
+    assert "delete from kubevoip_dialog where expires_at < now()" in rendered
+    assert "delete from kubevoip_asterisk_callee where expires_at < now()" in rendered
+    assert 'send_reply("481", "Call/Transaction Does Not Exist");' in rendered
+
+
+def test_kamailio_in_dialog_validation_can_be_disabled():
+    rendered = render_kamailio_config(
+        _gateway_with_fixes(aggressive_sbc=True, in_dialog_validation=False),
+        "home",
+        "test",
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+
+    assert 'loadmodule "ipops.so"' not in rendered
+    assert 'loadmodule "rtimer.so"' not in rendered
+    assert "route[GUARD_INDIALOG_DEST]" not in rendered
+    assert "route[LOAD_DIALOG]" not in rendered
+    assert "is_known_dlg()" not in rendered
+    assert 'if (is_method("BYE|CANCEL"))' in rendered
+    assert "stage=dialog_not_found" in rendered
+    assert 'send_reply("404", "Dialog not found");' in rendered
+    assert "kubevoip_dialog" not in rendered
+    assert "sbc_trunk" in rendered
+    assert "stage=indialog_self_ruri_fixed" in rendered
 
 
 def test_kamailio_can_include_sdp_body_in_sip_message_log():

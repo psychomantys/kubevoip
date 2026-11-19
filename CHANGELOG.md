@@ -13,11 +13,26 @@ All notable changes to KubeVoIP are documented in this file.
   (`kubevoip_asterisk_callee`) with a per-pod `htable` L1 cache for
   multi-replica safety. Set `enabled: false` to keep the previous Kamailio
   script.
+- `SIPGateway.spec.fix.inDialogValidation.enabled` (default `true`) to accept
+  in-dialog requests only against dialog state (`is_known_dlg()` or shared
+  `kubevoip_dialog` tag match), gate `CANCEL` on `t_check_trans()`, move
+  `rtpengine_delete()` after validation, block public non-trunk callers from
+  private/cluster destinations unless listed in `NetworkProfile.localNetworks`,
+  and purge expired `kubevoip_dialog` / `kubevoip_asterisk_callee` rows on a
+  timer. Set `enabled: false` to restore the previous unvalidated script.
 - Operator IPv4 `A`-record resolution for hostname external addresses: status
   `advertisedIps` (and gateway `internalAdvertisedIps`), Kamailio `alias=<ip>:5060`
   entries while keeping hostname advertise/Record-Route/Contact, RTPengine equal
   round-robin advertise interfaces (`external:N`), roll on IP-set change, and
   last-known IP cache when DNS fails after a prior success.
+
+### Fixed
+
+- SIP-user calls to `AsteriskPool` no longer rewrite the `200 OK` Contact to the
+  gateway address. Trunk calls keep the rewrite. Non-trunk in-dialog requests
+  whose Request-URI is the gateway itself recover the stored Asterisk
+  destination, which stops the ACK from hairpinning through the load balancer
+  and NAT gateway and hanging up at SIP Timer H (~32s).
 
 ## [0.6.8] - 2026-06-26
 

@@ -38,5 +38,6 @@ def test_export_docs_reference_renders_nested_spec_fields() -> None:
     assert "`spec.observability.sdp.enabled`" in content
     assert "### SIPGateway fix" in content
     assert "`spec.fix.aggressiveSbcPrivateContact.enabled`" in content
+    assert "`spec.fix.inDialogValidation.enabled`" in content
     assert "`spec.trunks`" not in content
     assert "`spec.routes`" not in content

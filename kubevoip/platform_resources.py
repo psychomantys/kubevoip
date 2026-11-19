@@ -299,6 +299,7 @@ def build_gateway_resources(
     relay_endpoints: list[str],
     external_address_aliases: list[str] | None = None,
     internal_address_aliases: list[str] | None = None,
+    local_networks: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     base = f"{name}-sip-gateway"
     labels = component_labels("kamailio", name)
@@ -314,6 +315,7 @@ def build_gateway_resources(
         relay_endpoints,
         external_address_aliases=external_aliases,
         internal_address_aliases=internal_aliases,
+        local_networks=local_networks,
     )
     checksum = stable_hash({"kamailio.cfg": config})
     configmap = {"apiVersion": "v1", "kind": "ConfigMap", "metadata": metadata(f"{base}-config", **common), "data": {"kamailio.cfg": config}}
