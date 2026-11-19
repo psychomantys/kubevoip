@@ -388,6 +388,10 @@ def test_kamailio_in_dialog_validation_enabled_by_default():
     assert "delete from kubevoip_dialog where expires_at < now()" in rendered
     assert "delete from kubevoip_asterisk_callee where expires_at < now()" in rendered
     assert 'send_reply("481", "Call/Transaction Does Not Exist");' in rendered
+    guard = rendered[rendered.index("route[GUARD_INDIALOG_DEST]") : rendered.index("route[PURGE_EXPIRED_ROWS]")]
+    assert "$du = $avp(callee_du);" in guard
+    assert "$du = $avp(dlg_downstream);" in guard
+    assert "$du == $avp(callee_du)" not in guard
 
 
 def test_kamailio_in_dialog_validation_can_be_disabled():

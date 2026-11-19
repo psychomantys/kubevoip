@@ -142,9 +142,9 @@ request_route {
 {% if aggressive_sbc_private_contact %}
       if (isflagset(1)) {
         route(FIX_CALLEE_DEST);
-      } else if (uri == myself) {
+      } else {
         route(LOAD_CALLEE_DEST);
-        if ($avp(callee_du) != $null && $avp(callee_du) != "") {
+        if (uri == myself && $avp(callee_du) != $null && $avp(callee_du) != "") {
           $du = $avp(callee_du);
           xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_self_ruri_fixed call_id=$ci method=$rm du=$du source=$si\n");
         }
@@ -498,10 +498,15 @@ route[GUARD_INDIALOG_DEST] {
   if ($var(dest_restricted) != 1) {
     return;
   }
-  if ($avp(callee_du) != $null && $avp(callee_du) != "" && $du == $avp(callee_du)) {
+  # Dialog is already validated. A private/cluster Request-URI (for example the
+  # Asterisk pod Contact) is allowed only by forcing the stored destination for
+  # this Call-ID — never by trusting $rd / $du from the request alone.
+  if ($avp(callee_du) != $null && $avp(callee_du) != "") {
+    $du = $avp(callee_du);
     return;
   }
-  if ($avp(dlg_downstream) != $null && $avp(dlg_downstream) != "" && $du == $avp(dlg_downstream)) {
+  if ($avp(dlg_downstream) != $null && $avp(dlg_downstream) != "") {
+    $du = $avp(dlg_downstream);
     return;
   }
   xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_dest_forbidden method=$rm call_id=$ci source=$si du=$du rd=$rd\n");
