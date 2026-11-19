@@ -119,20 +119,10 @@ def render_kamailio_config(
         f"where t.namespace='{sql_namespace}' and t.gateway_name='{sql_gateway}' "
         "and c.cidr >>= '"
     )
-    trusted_query_suffix = (
-        "'::inet "
-        "order by t.name limit 1"
-    )
-    caller_query_prefix = (
-        "select dial_policy_name from kubevoip_sip_user "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and auth_username='"
-    )
+    trusted_query_suffix = "'::inet order by t.name limit 1"
+    caller_query_prefix = f"select dial_policy_name from kubevoip_sip_user where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and auth_username='"
     caller_query_suffix = "' limit 1"
-    mwi_user_query_prefix = (
-        "select mailbox from kubevoip_voicemail_mailbox "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and sip_auth_username='"
-    )
+    mwi_user_query_prefix = f"select mailbox from kubevoip_voicemail_mailbox where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and sip_auth_username='"
     mwi_user_query_suffix = "' limit 1"
     mwi_state_query_prefix = (
         "select vm.mailbox, "
@@ -145,10 +135,7 @@ def render_kamailio_config(
     )
     mwi_state_query_suffix = "' group by vm.mailbox limit 1"
     mwi_contacts_query_prefix = "select contact from location where username='"
-    mwi_contacts_query_suffix = (
-        f"' and (domain is null or domain='' or domain='{sql_gateway}') "
-        "and expires > now() order by last_modified desc"
-    )
+    mwi_contacts_query_suffix = f"' and (domain is null or domain='' or domain='{sql_gateway}') and expires > now() order by last_modified desc"
     route_query_prefix = (
         "select r.target_kind, r.target_ref, coalesce(r.target_extension,''), coalesce(r.target_host,''), "
         "coalesce(u.auth_username,''), coalesce(t.termination_uri,''), coalesce(t.outbound_caller_id,''), "
@@ -164,47 +151,20 @@ def render_kamailio_config(
         "vm.gateway_name=r.gateway_name and vm.sip_user_name=r.target_ref and vm.fallback_enabled=1 "
         f"where d.namespace='{sql_namespace}' and d.policy_name='"
     )
-    route_query_middle = (
-        "' "
-        f"and r.gateway_name='{sql_gateway}' "
-        "and (r.called_number='"
-    )
-    route_query_suffix = (
-        "' or (right(r.called_number, 3)='...' "
-        "and '"
-    )
-    route_query_end = (
-        "' like left(r.called_number, length(r.called_number)-3) || '%')) "
-        "order by d.position, r.priority, r.name limit 1"
-    )
-    callee_store_query_prefix = (
-        "insert into kubevoip_asterisk_callee "
-        "(namespace, gateway_name, call_id, destination, expires_at) "
-        f"values ('{sql_namespace}', '{sql_gateway}', '"
-    )
+    route_query_middle = f"' and r.gateway_name='{sql_gateway}' and (r.called_number='"
+    route_query_suffix = "' or (right(r.called_number, 3)='...' and '"
+    route_query_end = "' like left(r.called_number, length(r.called_number)-3) || '%')) order by d.position, r.priority, r.name limit 1"
+    callee_store_query_prefix = f"insert into kubevoip_asterisk_callee (namespace, gateway_name, call_id, destination, expires_at) values ('{sql_namespace}', '{sql_gateway}', '"
     callee_store_query_middle = "', '"
-    callee_store_query_suffix = (
-        "', now() + interval '2 hours') "
-        "on conflict (namespace, gateway_name, call_id) do update set "
-        "destination = excluded.destination, expires_at = excluded.expires_at"
-    )
-    callee_lookup_query_prefix = (
-        "select destination from kubevoip_asterisk_callee "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and call_id='"
-    )
+    callee_store_query_suffix = "', now() + interval '2 hours') on conflict (namespace, gateway_name, call_id) do update set destination = excluded.destination, expires_at = excluded.expires_at"
+    callee_lookup_query_prefix = f"select destination from kubevoip_asterisk_callee where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
     callee_lookup_query_suffix = "' and expires_at > now() limit 1"
-    callee_delete_query_prefix = (
-        "delete from kubevoip_asterisk_callee "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and call_id='"
-    )
+    callee_delete_query_prefix = f"delete from kubevoip_asterisk_callee where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
     callee_delete_query_suffix = "'"
-    dialog_store_query_prefix = (
-        "insert into kubevoip_dialog "
-        "(namespace, gateway_name, call_id, from_tag, to_tag, downstream_uri, expires_at) "
-        f"values ('{sql_namespace}', '{sql_gateway}', '"
-    )
+    callee_update_dest_prefix = "update kubevoip_asterisk_callee set destination='"
+    callee_update_dest_middle = f"', expires_at = now() + interval '2 hours' where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
+    callee_update_dest_suffix = "'"
+    dialog_store_query_prefix = f"insert into kubevoip_dialog (namespace, gateway_name, call_id, from_tag, to_tag, downstream_uri, expires_at) values ('{sql_namespace}', '{sql_gateway}', '"
     dialog_store_query_middle_call_id = "', '"
     dialog_store_query_middle_from_tag = "', null, '"
     dialog_store_query_suffix = (
@@ -213,27 +173,16 @@ def render_kamailio_config(
         "from_tag = excluded.from_tag, downstream_uri = excluded.downstream_uri, "
         "expires_at = excluded.expires_at"
     )
-    dialog_lookup_query_prefix = (
-        "select from_tag, coalesce(to_tag,''), downstream_uri from kubevoip_dialog "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and call_id='"
-    )
+    dialog_lookup_query_prefix = f"select from_tag, coalesce(to_tag,''), downstream_uri from kubevoip_dialog where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
     dialog_lookup_query_suffix = "' and expires_at > now() limit 1"
-    dialog_update_to_tag_prefix = (
-        "update kubevoip_dialog set to_tag='"
-    )
-    dialog_update_to_tag_middle = (
-        f"', expires_at = now() + interval '2 hours' "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and call_id='"
-    )
+    dialog_update_to_tag_prefix = "update kubevoip_dialog set to_tag='"
+    dialog_update_to_tag_middle = f"', expires_at = now() + interval '2 hours' where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
     dialog_update_to_tag_suffix = "' and (to_tag is null or to_tag='')"
-    dialog_delete_query_prefix = (
-        "delete from kubevoip_dialog "
-        f"where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' "
-        "and call_id='"
-    )
+    dialog_delete_query_prefix = f"delete from kubevoip_dialog where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
     dialog_delete_query_suffix = "'"
+    dialog_update_downstream_prefix = "update kubevoip_dialog set downstream_uri='"
+    dialog_update_downstream_middle = f"', expires_at = now() + interval '2 hours' where namespace='{sql_namespace}' and gateway_name='{sql_gateway}' and call_id='"
+    dialog_update_downstream_suffix = "'"
     dialog_purge_query = "delete from kubevoip_dialog where expires_at < now()"
     callee_purge_query = "delete from kubevoip_asterisk_callee where expires_at < now()"
     return render_template(
@@ -278,6 +227,9 @@ def render_kamailio_config(
         callee_lookup_query_suffix=callee_lookup_query_suffix,
         callee_delete_query_prefix=callee_delete_query_prefix,
         callee_delete_query_suffix=callee_delete_query_suffix,
+        callee_update_dest_prefix=callee_update_dest_prefix,
+        callee_update_dest_middle=callee_update_dest_middle,
+        callee_update_dest_suffix=callee_update_dest_suffix,
         dialog_store_query_prefix=dialog_store_query_prefix,
         dialog_store_query_middle_call_id=dialog_store_query_middle_call_id,
         dialog_store_query_middle_from_tag=dialog_store_query_middle_from_tag,
@@ -289,6 +241,9 @@ def render_kamailio_config(
         dialog_update_to_tag_suffix=dialog_update_to_tag_suffix,
         dialog_delete_query_prefix=dialog_delete_query_prefix,
         dialog_delete_query_suffix=dialog_delete_query_suffix,
+        dialog_update_downstream_prefix=dialog_update_downstream_prefix,
+        dialog_update_downstream_middle=dialog_update_downstream_middle,
+        dialog_update_downstream_suffix=dialog_update_downstream_suffix,
         dialog_purge_query=dialog_purge_query,
         callee_purge_query=callee_purge_query,
     )
