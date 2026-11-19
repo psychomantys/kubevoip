@@ -81,11 +81,18 @@ By default, `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` is
 - as a safety net for non-trunk in-dialog requests whose Request-URI is the
   gateway itself (`uri == myself`), forces `$du` to the stored Asterisk
   destination when one exists
+- on AsteriskPool / voicemail `2xx` replies, re-binds the stored destination to
+  the answering pod before any trunk Contact rewrite: prefer a private IP in
+  the reply `Contact`, else the reply source (`$si`), else a
+  `.cluster.local` Contact host — so multi-replica Asterisk does not leave the
+  store pointing at Service DNS while ACK must reach the pod that answered
 
 Multi-replica SIPGateway deployments are safe: an ACK that lands on a different
 Kamailio pod than the INVITE loads the destination from PostgreSQL, fills the
 local L1 cache, then forces `$du`. Pod restart mid-call also recovers from
-Postgres. Sticky NLB affinity is not required.
+Postgres. Sticky NLB affinity is not required. Multi-replica Asterisk pools
+rely on the `2xx` re-bind above so GUARD / FIX paths force `$du` to the
+answering pod, not the Service VIP.
 
 Set `enabled: false` to restore the previous Kamailio script for compatibility
 testing. Destination recovery uses the stored Asterisk URI only (not hardcoded
@@ -105,8 +112,12 @@ Kamailio then validates in-dialog requests before deleting media or relaying:
   INVITE to a `SIPUser`, `AsteriskPool`, or `SIPTrunk` target
 - `rtpengine_delete()` for `BYE` runs only after that check
 - for public, non-trunk sources, a private or cluster destination is allowed
-  only when it equals the stored dialog or Asterisk destination, or when it
-  falls inside `NetworkProfile.localNetworks`
+  only when the stored dialog or Asterisk destination for that Call-ID can be
+  forced onto `$du`, or when the destination falls inside
+  `NetworkProfile.localNetworks` (request `$rd` / `$du` alone are never trusted)
+- on Asterisk `2xx` replies, updates `kubevoip_dialog.downstream_uri` to the
+  answering pod the same way `aggressiveSbcPrivateContact` re-binds
+  `kubevoip_asterisk_callee`
 - a Kamailio `rtimer` deletes expired rows from `kubevoip_dialog` and
   `kubevoip_asterisk_callee` every ten minutes; a validated `BYE` also deletes
   the dialog row immediately

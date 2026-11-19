@@ -33,6 +33,11 @@ All notable changes to KubeVoIP are documented in this file.
   whose Request-URI is the gateway itself recover the stored Asterisk
   destination, which stops the ACK from hairpinning through the load balancer
   and NAT gateway and hanging up at SIP Timer H (~32s).
+- AsteriskPool / voicemail `2xx` replies re-bind `kubevoip_asterisk_callee` and
+  `kubevoip_dialog.downstream_uri` from the answering pod (`Contact` private IP,
+  else `$si`, else cluster Contact host) before trunk Contact rewrite, so
+  multi-replica Asterisk ACK/BYE GUARD paths target the pod that answered
+  instead of Service DNS.
 
 ## [0.6.8] - 2026-06-26
 
