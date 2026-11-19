@@ -319,6 +319,52 @@ def test_gateway_keeps_hostname_advertise_and_adds_resolved_aliases(monkeypatch)
     )
 
 
+def test_gateway_renders_local_networks_from_network_profile(monkeypatch):
+    monkeypatch.setattr(platform_controller, "database_ready", lambda _database: None)
+    monkeypatch.setattr(
+        platform_controller,
+        "resolve_ipv4_addresses",
+        lambda host: ["10.96.0.10"] if "svc.cluster.local" in host else [host],
+    )
+    custom = {
+        (
+            "test",
+            "mediarelays",
+            "home",
+        ): {"status": {"relays": [{"service": "home-rtpengine-0"}]}},
+        (
+            "test",
+            "networkprofiles",
+            "lan",
+        ): {
+            "apiVersion": "kubevoip.com/v1alpha1",
+            "kind": "NetworkProfile",
+            "metadata": {"name": "lan", "namespace": "test"},
+            "spec": {"externalAddress": {"source": "Service"}, "localNetworks": ["10.20.0.0/16"]},
+        },
+    }
+    api = FakeKubernetes(
+        custom=custom,
+        secrets={("test", "db"): {"host": "postgres", "port": "5432", "dbname": "kubevoip", "user": "app", "password": "secret"}},
+    )
+    body = {
+        "apiVersion": "kubevoip.com/v1alpha1",
+        "kind": "SIPGateway",
+        "metadata": {"name": "home", "namespace": "test", "uid": "uid"},
+    }
+    spec = {
+        "databaseSecretRef": {"name": "db"},
+        "networkProfileRef": {"name": "lan"},
+        "mediaRelayRef": {"name": "home"},
+    }
+
+    reconcile_gateway(body, spec, api)
+    config = next(resource for resource in api.applied if resource["kind"] == "ConfigMap")["data"]["kamailio.cfg"]
+
+    assert 'ip_is_in_subnet("$si", "10.20.0.0/16")' in config
+    assert "route[GUARD_INDIALOG_DEST]" in config
+
+
 def test_sip_trunk_and_call_route_statuses_validate_references(monkeypatch):
     calls = {}
     monkeypatch.setattr(platform_controller, "reconcile_sip_trunk", lambda *args: calls.setdefault("trunk", args))

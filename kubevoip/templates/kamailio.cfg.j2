@@ -47,6 +47,10 @@ loadmodule "xlog.so"
 {% if aggressive_sbc_private_contact %}
 loadmodule "htable.so"
 {% endif %}
+{% if in_dialog_validation %}
+loadmodule "ipops.so"
+loadmodule "rtimer.so"
+{% endif %}
 {% if capture.enabled %}
 loadmodule "siptrace.so"
 {% endif %}
@@ -68,6 +72,10 @@ modparam("sqlops", "sqlcon", "kubevoip=>__DBURL__")
 {% if aggressive_sbc_private_contact %}
 modparam("htable", "htable", "calleedu=>size=16;autoexpire=7200;")
 {% endif %}
+{% if in_dialog_validation %}
+modparam("rtimer", "timer", "name=kubevoip_purge;interval=600;mode=1;")
+modparam("rtimer", "exec", "timer=kubevoip_purge;route=PURGE_EXPIRED_ROWS")
+{% endif %}
 {% if capture.enabled %}
 modparam("siptrace", "trace_on", 1)
 modparam("siptrace", "trace_to_database", 0)
@@ -86,6 +94,18 @@ request_route {
 {% endif %}
   if (!mf_process_maxfwd_header("10")) { send_reply("483", "Too Many Hops"); exit; }
   route(DETECT_TRUSTED_TRUNK);
+{% if in_dialog_validation %}
+  if (is_method("CANCEL")) {
+    if (t_check_trans()) {
+      xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=rtpengine_delete method=$rm call_id=$ci source=$si\n");
+      rtpengine_delete();
+      t_relay();
+    } else {
+      xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=cancel_rejected reason=no_transaction call_id=$ci source=$si\n");
+    }
+    exit;
+  }
+{% else %}
   if (is_method("BYE|CANCEL")) {
     xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=rtpengine_delete method=$rm call_id=$ci source=$si\n");
     rtpengine_delete();
@@ -95,15 +115,54 @@ request_route {
     }
 {% endif %}
   }
+{% endif %}
   if (has_totag()) {
-{% if aggressive_sbc_private_contact %}
     if (loose_route()) {
+{% if in_dialog_validation %}
+      $var(dlg_known) = 0;
+      if (is_known_dlg()) {
+        $var(dlg_known) = 1;
+      }
+      route(LOAD_DIALOG);
+      if ($var(dlg_known) != 1 && $avp(dlg_ok) != "1") {
+        if (!is_method("ACK")) {
+          xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_rejected reason=unknown_dialog method=$rm call_id=$ci source=$si\n");
+          send_reply("481", "Call/Transaction Does Not Exist");
+        }
+        exit;
+      }
+      if (uri == myself && $avp(dlg_downstream) != $null && $avp(dlg_downstream) != "") {
+        $du = $avp(dlg_downstream);
+      }
+      if (is_method("BYE")) {
+        xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=rtpengine_delete method=$rm call_id=$ci source=$si\n");
+        rtpengine_delete();
+{% if aggressive_sbc_private_contact %}
+        if (isflagset(1)) {
+          route(CLEAR_CALLEE_DEST);
+        }
+{% endif %}
+        route(CLEAR_DIALOG);
+      }
+{% endif %}
+{% if aggressive_sbc_private_contact %}
       if (isflagset(1)) {
         route(FIX_CALLEE_DEST);
+      } else if (uri == myself) {
+        route(LOAD_CALLEE_DEST);
+        if ($avp(callee_du) != $null && $avp(callee_du) != "") {
+          $du = $avp(callee_du);
+          xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_self_ruri_fixed call_id=$ci method=$rm du=$du source=$si\n");
+        }
       }
+{% endif %}
+{% if in_dialog_validation %}
+      route(GUARD_INDIALOG_DEST);
+{% endif %}
       route(RELAY);
       exit;
     }
+{% if aggressive_sbc_private_contact %}
     if (is_method("ACK")) {
       if (isflagset(1)) {
         route(LOAD_CALLEE_DEST);
@@ -122,16 +181,26 @@ request_route {
       if ($avp(callee_du) != $null && $avp(callee_du) != "") {
         $du = $avp(callee_du);
         xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_force_callee call_id=$ci method=$rm du=$du source=$si\n");
+{% if in_dialog_validation %}
+        route(GUARD_INDIALOG_DEST);
+{% endif %}
         route(RELAY);
         exit;
       }
     }
 {% else %}
-    if (loose_route()) { route(RELAY); exit; }
-    if (is_method("ACK")) { exit; }
+    if (is_method("ACK")) {
+      if (t_check_trans()) { t_relay(); exit; }
+      exit;
+    }
 {% endif %}
+{% if in_dialog_validation %}
+    xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_rejected reason=unknown_dialog method=$rm call_id=$ci source=$si\n");
+    send_reply("481", "Call/Transaction Does Not Exist");
+{% else %}
     xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=dialog_not_found method=$rm call_id=$ci source=$si\n");
     send_reply("404", "Dialog not found");
+{% endif %}
     exit;
   }
   if (is_method("REGISTER")) {
@@ -357,6 +426,105 @@ route[FIX_CALLEE_DEST] {
 }
 
 {% endif %}
+{% if in_dialog_validation %}
+route[LOAD_DIALOG] {
+  $avp(dlg_ok) = "0";
+  $avp(dlg_downstream) = "";
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(dialog_lookup_query) = "{{ dialog_lookup_query_prefix }}" + $var(ci_esc) + "{{ dialog_lookup_query_suffix }}";
+  sql_query("kubevoip", "$var(dialog_lookup_query)", "dialog");
+  if ($dbr(dialog=>rows) > 0) {
+    $avp(dlg_from_tag) = $dbr(dialog=>[0,0]);
+    $avp(dlg_to_tag) = $dbr(dialog=>[0,1]);
+    $avp(dlg_downstream) = $dbr(dialog=>[0,2]);
+    if (($ft == $avp(dlg_from_tag) && ($avp(dlg_to_tag) == "" || $tt == $avp(dlg_to_tag))) || ($ft == $avp(dlg_to_tag) && $tt == $avp(dlg_from_tag))) {
+      $avp(dlg_ok) = "1";
+    }
+  }
+  sql_result_free("dialog");
+}
+
+route[STORE_DIALOG] {
+  $var(dlg_du) = $du;
+  if ($var(dlg_du) == $null || $var(dlg_du) == "") {
+    $var(dlg_du) = $ru;
+  }
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(ft_esc) = $(ft{s.replace,',''});
+  $var(du_esc) = $(var(dlg_du){s.replace,',''});
+  $var(dialog_store_query) = "{{ dialog_store_query_prefix }}" + $var(ci_esc) + "{{ dialog_store_query_middle_call_id }}" + $var(ft_esc) + "{{ dialog_store_query_middle_from_tag }}" + $var(du_esc) + "{{ dialog_store_query_suffix }}";
+  sql_query("kubevoip", "$var(dialog_store_query)", "dialog_store");
+  sql_result_free("dialog_store");
+  xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=dialog_stored call_id=$ci du=$var(dlg_du)\n");
+}
+
+route[UPDATE_DIALOG_TO_TAG] {
+  if ($tt == $null || $tt == "") {
+    return;
+  }
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(tt_esc) = $(tt{s.replace,',''});
+  $var(dialog_update_query) = "{{ dialog_update_to_tag_prefix }}" + $var(tt_esc) + "{{ dialog_update_to_tag_middle }}" + $var(ci_esc) + "{{ dialog_update_to_tag_suffix }}";
+  sql_query("kubevoip", "$var(dialog_update_query)", "dialog_update");
+  sql_result_free("dialog_update");
+}
+
+route[CLEAR_DIALOG] {
+  $var(ci_esc) = $(ci{s.replace,',''});
+  $var(dialog_delete_query) = "{{ dialog_delete_query_prefix }}" + $var(ci_esc) + "{{ dialog_delete_query_suffix }}";
+  sql_query("kubevoip", "$var(dialog_delete_query)", "dialog_delete");
+  sql_result_free("dialog_delete");
+}
+
+route[GUARD_INDIALOG_DEST] {
+  if (isflagset(1)) {
+    return;
+  }
+  if ($si =~ "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|127\\.|169\\.254\\.)") {
+    return;
+  }
+{% for cidr in local_networks %}
+  if (ip_is_in_subnet("$si", "{{ cidr }}")) {
+    return;
+  }
+{% endfor %}
+  $var(dest_host) = $rd;
+  if ($du != $null && $du != "") {
+    $var(dest_host) = $dd;
+  }
+  $var(dest_restricted) = 0;
+  if ($var(dest_host) =~ "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|127\\.|169\\.254\\.)" || $var(dest_host) =~ "\\.cluster\\.local$") {
+    $var(dest_restricted) = 1;
+  }
+{% for cidr in local_networks %}
+  if ($var(dest_host) =~ "^[0-9.]+$" && ip_is_in_subnet("$var(dest_host)", "{{ cidr }}")) {
+    return;
+  }
+{% endfor %}
+  if ($var(dest_restricted) != 1) {
+    return;
+  }
+  if ($avp(callee_du) != $null && $avp(callee_du) != "" && $du == $avp(callee_du)) {
+    return;
+  }
+  if ($avp(dlg_downstream) != $null && $avp(dlg_downstream) != "" && $du == $avp(dlg_downstream)) {
+    return;
+  }
+  xlog("L_WARN", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=indialog_dest_forbidden method=$rm call_id=$ci source=$si du=$du rd=$rd\n");
+  if (!is_method("ACK")) {
+    send_reply("403", "Forbidden destination");
+  }
+  exit;
+}
+
+route[PURGE_EXPIRED_ROWS] {
+  sql_query("kubevoip", "{{ dialog_purge_query }}", "dialog_purge");
+  sql_result_free("dialog_purge");
+  sql_query("kubevoip", "{{ callee_purge_query }}", "callee_purge");
+  sql_result_free("callee_purge");
+}
+
+{% endif %}
 route[RTPENGINE_OFFER_GENERIC] {
   $dlg_var(media_target) = "generic";
   if (has_body("application/sdp")) {
@@ -403,6 +571,9 @@ route[ROUTE_INVITE] {
       send_reply("404", "Not registered");
       exit;
     }
+{% if in_dialog_validation %}
+    route(STORE_DIALOG);
+{% endif %}
     route(RTPENGINE_OFFER_GENERIC);
     route(RELAY_USER);
     exit;
@@ -412,6 +583,12 @@ route[ROUTE_INVITE] {
     $du = "sip:" + $dbr(route=>[0,3]) + ":5060";
 {% if aggressive_sbc_private_contact %}
     route(STORE_CALLEE_DEST);
+    if (isflagset(1)) {
+      $dlg_var(sbc_trunk) = "1";
+    }
+{% endif %}
+{% if in_dialog_validation %}
+    route(STORE_DIALOG);
 {% endif %}
     sql_result_free("route");
     route(RTPENGINE_OFFER_ASTERISK);
@@ -428,6 +605,9 @@ route[ROUTE_INVITE] {
     $avp(auser) = $dbr(route=>[0,7]);
     $avp(arealm) = $dbr(route=>[0,8]);
     $avp(apass) = $dbr(route=>[0,9]);
+{% if in_dialog_validation %}
+    route(STORE_DIALOG);
+{% endif %}
     sql_result_free("route");
     route(RTPENGINE_OFFER_GENERIC);
     route(RELAY_TRUNK);
@@ -477,6 +657,12 @@ route[SEND_TO_VOICEMAIL] {
   $du = "sip:" + $avp(vm_host) + ":5060";
 {% if aggressive_sbc_private_contact %}
   route(STORE_CALLEE_DEST);
+  if (isflagset(1)) {
+    $dlg_var(sbc_trunk) = "1";
+  }
+{% endif %}
+{% if in_dialog_validation %}
+  route(STORE_DIALOG);
 {% endif %}
   append_hf("X-KubeVoIP-Mailbox: $avp(vm_mailbox)\r\n");
   route(RTPENGINE_OFFER_ASTERISK);
@@ -539,8 +725,13 @@ onreply_route[MANAGE_REPLY] {
 {% if sip_headers.enabled %}
   route(LOG_SIP_MESSAGE);
 {% endif %}
+{% if in_dialog_validation %}
+  if ($tt != $null && $tt != "") {
+    route(UPDATE_DIALOG_TO_TAG);
+  }
+{% endif %}
 {% if aggressive_sbc_private_contact %}
-  if (status =~ "2[0-9][0-9]" && $sht(calleedu=>$ci) != $null && $sht(calleedu=>$ci) != "") {
+  if (status =~ "2[0-9][0-9]" && $dlg_var(sbc_trunk) == "1" && $sht(calleedu=>$ci) != $null && $sht(calleedu=>$ci) != "") {
     remove_hf("Contact");
     append_hf("Contact: <sip:asterisk@" + ADVERTISED_ADDR + ":5060>\r\n");
     xlog("L_INFO", "kubevoip_sip_event namespace={{ namespace }} gateway={{ gateway_name }} stage=contact_rewritten call_id=$ci status=$rs\n");

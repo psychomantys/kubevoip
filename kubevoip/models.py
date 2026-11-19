@@ -271,10 +271,20 @@ class AggressiveSbcPrivateContactFixSpec(Model):
     enabled: bool = True
 
 
+class InDialogValidationFixSpec(Model):
+    """Validate in-dialog requests against dialog state before deleting media or relaying."""
+
+    enabled: bool = True
+
+
 class SIPGatewayFixSpec(Model):
     aggressive_sbc_private_contact: AggressiveSbcPrivateContactFixSpec = Field(
         default_factory=AggressiveSbcPrivateContactFixSpec,
         alias="aggressiveSbcPrivateContact",
+    )
+    in_dialog_validation: InDialogValidationFixSpec = Field(
+        default_factory=InDialogValidationFixSpec,
+        alias="inDialogValidation",
     )
 
 

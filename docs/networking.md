@@ -76,7 +76,12 @@ By default, `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` is
   trunks (`isflagset(1)`), and only when the Request-URI is not already a
   private cluster address — so Asterisk→SBC return-path traffic is not
   hairpinned back to Asterisk
-- rewrites AsteriskPool `2xx` `Contact` to the gateway advertised address
+- rewrites AsteriskPool `2xx` `Contact` to the gateway advertised address only
+  for trusted trunk calls (`$dlg_var(sbc_trunk)`), so authenticated SIP users
+  keep the private Asterisk `Contact`
+- as a safety net for non-trunk in-dialog requests whose Request-URI is the
+  gateway itself (`uri == myself`), forces `$du` to the stored Asterisk
+  destination when one exists
 
 Multi-replica SIPGateway deployments are safe: an ACK that lands on a different
 Kamailio pod than the INVITE loads the destination from PostgreSQL, fills the
@@ -86,7 +91,38 @@ Postgres. Sticky NLB affinity is not required.
 Set `enabled: false` to restore the previous Kamailio script for compatibility
 testing. Destination recovery uses the stored Asterisk URI only (not hardcoded
 LB IP aliases in that fix path). Separately, DNS-resolved NLB IPv4 aliases are
-still rendered for `myself` matching as described above.
+still rendered for `myself` matching as described above. Rows in
+`kubevoip_asterisk_callee` expire after two hours.
+
+### In-dialog validation
+
+By default, `SIPGateway.spec.fix.inDialogValidation.enabled` is `true`.
+Kamailio then validates in-dialog requests before deleting media or relaying:
+
+- `CANCEL` is accepted only when `t_check_trans()` matches a live INVITE
+  transaction on this pod
+- after `loose_route()`, the request must match `is_known_dlg()` on this pod or
+  a `kubevoip_dialog` row (Call-ID plus From/To tags) written for every accepted
+  INVITE to a `SIPUser`, `AsteriskPool`, or `SIPTrunk` target
+- `rtpengine_delete()` for `BYE` runs only after that check
+- for public, non-trunk sources, a private or cluster destination is allowed
+  only when it equals the stored dialog or Asterisk destination, or when it
+  falls inside `NetworkProfile.localNetworks`
+- a Kamailio `rtimer` deletes expired rows from `kubevoip_dialog` and
+  `kubevoip_asterisk_callee` every ten minutes; a validated `BYE` also deletes
+  the dialog row immediately
+
+`is_known_dlg()` is the fast path on the pod that handled the INVITE. Any other
+pod, and a pod restarted mid-call, accepts the request from `kubevoip_dialog`.
+Kamailio `dialog` `db_mode` is not used for this. `CANCEL` is not covered by
+Postgres: it still requires the in-memory INVITE transaction.
+
+Deployments with LAN phones on private ranges must list those ranges in
+`NetworkProfile.localNetworks`, otherwise a public phone's in-dialog request
+toward a LAN phone is refused with `403 Forbidden destination`.
+
+Set `enabled: false` to restore the previous unvalidated `BYE|CANCEL` and
+`has_totag()` handling without disabling `aggressiveSbcPrivateContact`.
 
 `CallRoute` resources belong to a `CallScope`. `DialPolicy` resources define the
 ordered scopes a caller can search. Authenticated SIP users use
