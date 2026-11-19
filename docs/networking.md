@@ -87,7 +87,10 @@ By default, `SIPGateway.spec.fix.aggressiveSbcPrivateContact.enabled` is
   the answering pod before any trunk Contact rewrite: prefer a private IP in
   the reply `Contact`, else the reply source (`$si`), else a
   `.cluster.local` Contact host — so multi-replica Asterisk does not leave the
-  store pointing at Service DNS while ACK must reach the pod that answered
+  store pointing at Service DNS while ACK must reach the pod that answered.
+  Contact host/port are read with Kamailio 5.6
+  `$(ct{nameaddr.uri}{uri.host})` / `{uri.port}` transforms (`$ct.fields.*` is
+  not available and would prevent the gateway ConfigMap from loading)
 
 Multi-replica SIPGateway deployments are safe: an ACK that lands on a different
 Kamailio pod than the INVITE loads the destination from PostgreSQL, fills the

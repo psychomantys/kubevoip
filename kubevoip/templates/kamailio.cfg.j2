@@ -540,8 +540,9 @@ route[BIND_ASTERISK_REPLY_DEST] {
   }
   $var(bind_host) = "";
   $var(bind_port) = "5060";
-  $var(ct_host) = $(ct.fields.uri{uri.host});
-  $var(ct_port) = $(ct.fields.uri{uri.port});
+  # Kamailio 5.6: Contact URI via nameaddr transforms (not $ct.fields.*).
+  $var(ct_host) = $(ct{nameaddr.uri}{uri.host});
+  $var(ct_port) = $(ct{nameaddr.uri}{uri.port});
   # Prefer a private IP in Contact (answering pod), then reply source $si,
   # then a cluster-local Contact host as last resort.
   if ($var(ct_host) != $null && $var(ct_host) != "" && $var(ct_host) =~ "^(10\\.|192\\.168\\.|172\\.(1[6-9]|2[0-9]|3[0-1])\\.|127\\.|169\\.254\\.)") {

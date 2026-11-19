@@ -55,7 +55,9 @@ All notable changes to KubeVoIP are documented in this file.
   `kubevoip_dialog.downstream_uri` from the answering pod (`Contact` private IP,
   else `$si`, else cluster Contact host) before trunk Contact rewrite, so
   multi-replica Asterisk ACK/BYE GUARD paths target the pod that answered
-  instead of Service DNS.
+  instead of Service DNS. Contact host/port parsing uses Kamailio 5.6
+  `$(ct{nameaddr.uri}{uri.host})` transforms; `$ct.fields.*` is not available
+  and previously made the gateway ConfigMap fail to load.
 
 ## [0.6.8] - 2026-06-26
 
