@@ -479,7 +479,9 @@ def test_kamailio_bind_asterisk_reply_dest_updates_stores_before_contact_rewrite
 
     assert "route[BIND_ASTERISK_REPLY_DEST]" in rendered
     assert '$dlg_var(media_target) != "asterisk"' in rendered
-    assert "$(ct.fields.uri{uri.host})" in rendered
+    assert "$(ct{nameaddr.uri}{uri.host})" in rendered
+    assert "$(ct{nameaddr.uri}{uri.port})" in rendered
+    assert "ct.fields.uri" not in rendered
     assert "stage=asterisk_dest_bound" in rendered
     assert "update kubevoip_asterisk_callee set destination=" in rendered
     assert "update kubevoip_dialog set downstream_uri=" in rendered
