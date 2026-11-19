@@ -348,6 +348,7 @@ def reconcile_gateway(body: dict[str, Any], raw_spec: dict[str, Any], kubernetes
         relay_endpoints,
         external_address_aliases=external_aliases,
         internal_address_aliases=internal_aliases,
+        local_networks=profile.local_networks,
     ):
         kubernetes.apply(resource)
     ready = kubernetes.ready_deployment_replicas(namespace, service_name)

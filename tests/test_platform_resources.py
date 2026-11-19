@@ -222,6 +222,46 @@ def test_gateway_resources_do_not_mount_trunk_secrets():
     assert container["envFrom"] == [{"secretRef": {"name": "db"}}]
 
 
+def test_gateway_resources_embed_local_networks_in_config_hash():
+    owner = {**OWNER, "kind": "SIPGateway"}
+    spec = SIPGatewaySpec.model_validate(
+        {
+            "databaseSecretRef": {"name": "db"},
+            "networkProfileRef": {"name": "public"},
+            "mediaRelayRef": {"name": "home"},
+        }
+    )
+    without_networks = build_gateway_resources(
+        "home",
+        "test",
+        owner,
+        spec,
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+    )
+    with_networks = build_gateway_resources(
+        "home",
+        "test",
+        owner,
+        spec,
+        "198.51.100.10",
+        "10.0.0.10",
+        ["udp:rtpengine:2223"],
+        local_networks=["10.0.0.0/8"],
+    )
+
+    config = next(item for item in with_networks if item["kind"] == "ConfigMap")["data"]["kamailio.cfg"]
+    hash_without = next(item for item in without_networks if item["kind"] == "Deployment")["spec"]["template"]["metadata"]["annotations"][
+        "kubevoip.com/config-hash"
+    ]
+    hash_with = next(item for item in with_networks if item["kind"] == "Deployment")["spec"]["template"]["metadata"]["annotations"][
+        "kubevoip.com/config-hash"
+    ]
+    assert 'ip_is_in_subnet("$si", "10.0.0.0/8")' in config
+    assert hash_without != hash_with
+
+
 def test_asterisk_pool_uses_private_service_and_headless_identity():
     owner = {**OWNER, "kind": "AsteriskPool"}
     resources = build_asterisk_pool_resources("apps", "test", owner, AsteriskPoolSpec(replicas=2))
